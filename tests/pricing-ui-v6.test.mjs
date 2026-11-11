@@ -1,3 +1,4 @@
+import { tradeInboxHref, hasPlatformRoutes } from '../dist/trade-return.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -9,7 +10,7 @@ import { getMerchantPricing, savePricingProfile } from '../services/platform/pri
 import { customerProfileFixture } from './helpers/customer-fixture.mjs';
 
 const appSource = await readFile(new URL('../dist/app.js', import.meta.url), 'utf8');
-const merchantSource = (await readFile(new URL('../dist/merchant-ui.js', import.meta.url), 'utf8')).replace(/^import .*\n/, '').replace('export function createMerchantUI', 'function createMerchantUI');
+const merchantSource = (await readFile(new URL('../dist/merchant-ui.js', import.meta.url), 'utf8')).replace(/^import .*\n/gm, '').replace('export function createMerchantUI', 'function createMerchantUI');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '¥' + Number(n).toFixed(2);
 function customerUI(workspace) {
@@ -30,6 +31,7 @@ async function sandbox() {
 function merchantUI(workspace) {
   const events = {}, requests = [];
   const context = vm.createContext({
+    tradeInboxHref, hasPlatformRoutes,
     Date, Intl, Number, Set, Object, Math, location: { pathname: '/merchant', hash: '#pricing' },
     document: { querySelector: selector => selector === '#merchant-pricing-form' ? { reportValidity: () => true } : null, addEventListener: (name, handler) => (events[name] ??= []).push(handler) },
     window: { addEventListener() {}, scrollTo() {} }, history: { replaceState() {} }, setTimeout, clearTimeout,

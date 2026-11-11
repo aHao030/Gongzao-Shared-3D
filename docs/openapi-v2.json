@@ -3,8 +3,8 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "共造 模型需求、商家方案与履约沙盒 API",
-    "version": "0.9.3",
-    "description": "主站客户、商家报价和订单沙盒接口。客户与商家操作限定在同一归属空间。报价可以携带匹配的独立切片计算结果。支付、派机及结算使用模拟状态。设备网关和生产中心接口另见 MERCHANT_GUIDE.md 及 OPERATIONS_CONTRACT_V0.9.md。"
+    "version": "0.9.5",
+    "description": "主站客户、模型预算、商家咨询与沙盒订单 API。/trade 以登录账号区分独立买家和商家。原有 /inquiries、/orders 继续使用单一工作空间的交易演示。支付、派机及结算使用模拟状态。设备网关及生产中心见 MERCHANT_GUIDE.md 和 OPERATIONS_CONTRACT_V0.9.md。"
   },
   "servers": [
     {
@@ -954,6 +954,790 @@
           }
         }
       }
+    },
+    "/api/v2/budget-estimate": {
+      "post": {
+        "operationId": "estimateModelBudget",
+        "summary": "按模型与工艺估算制造预算",
+        "description": "已有访客或登录工作空间即可计算平台参考预算，无需收货地址或幂等键。传入公开的其他店铺 shopId 时需登录并绑定当前工作空间，按所选店铺的可用工艺估算。结果返回制造及平台服务费的整单和每件金额（人民币分），上下界可以相同。工程审核返回空金额。建立咨询时，店铺预算随会话保存。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "estimate": {
+                      "$ref": "#/components/schemas/ModelBudget"
+                    }
+                  },
+                  "required": [
+                    "estimate"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Gongzao-Workspace",
+            "in": "header",
+            "required": false,
+            "description": "提交 GET /api/v2/session 返回的 workspaceContext。指定 shopId 时必填；其余请求建议发送，过时的值返回 409。",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/shops": {
+      "get": {
+        "operationId": "listTradeShops",
+        "summary": "查看接受咨询的店铺",
+        "description": "公开列表每页最多 24 项。已登录时 mine 标识自己的店铺。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "shops": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TradePublicShop"
+                      }
+                    },
+                    "nextBefore": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "shops",
+                    "nextBefore"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "上一页返回的 nextBefore 店铺游标。",
+            "required": false
+          }
+        ],
+        "security": []
+      }
+    },
+    "/api/v2/trade/shop": {
+      "get": {
+        "operationId": "getMyTradeShop",
+        "summary": "读取自己的店铺入口",
+        "description": "enrolled 指账号是否已有商家资料，shop 在尚未保存入口状态时为空。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enrolled": {
+                      "type": "boolean"
+                    },
+                    "shop": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/TradeShop"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "enrolled",
+                    "shop"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "publishTradeShop",
+        "summary": "开放或关闭自己的咨询入口",
+        "description": "需先创建商家资料。首次操作传 expectedRevision=0；后续使用已读店铺版本。关闭入口后保留已有会话。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "shop": {
+                      "$ref": "#/components/schemas/TradeShop"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "shop"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0
+                  }
+                },
+                "required": [
+                  "enabled"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads": {
+      "get": {
+        "operationId": "listTradeThreads",
+        "summary": "分页查看个人收件箱",
+        "description": "按更新时间倒序返回至多 24 项。仅包括当前登录账号参加的会话。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threads": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TradeThread"
+                      }
+                    },
+                    "nextBefore": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "threads",
+                    "nextBefore"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "buyer",
+                "merchant"
+              ]
+            },
+            "description": "可选的咨询身份。",
+            "required": false
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "按原样提交上一页返回的 nextBefore。",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "openTradeThread",
+        "summary": "就一个模型向指定商家发起咨询",
+        "description": "仅能选择自己的模型和其他账号已开放的店铺。shareFile 需由客户明确选择，样件不能共享原件。选定工艺和数量的店铺预算随咨询保存。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threadId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "threadId"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeOpenRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads/{threadId}": {
+      "get": {
+        "operationId": "getTradeThread",
+        "summary": "读取会话及消息",
+        "description": "双方可见。默认取最新 50 条，按 seq 升序显示。before 与 after 同时最多传一个。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "thread": {
+                      "$ref": "#/components/schemas/TradeThread"
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TradeMessage"
+                      }
+                    },
+                    "nextAfter": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "olderBefore": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "thread",
+                    "messages",
+                    "nextAfter",
+                    "olderBefore"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "取此序号之前的消息。",
+            "required": false
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "取此序号之后的消息，用于增量更新。",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/file": {
+      "get": {
+        "operationId": "downloadTradeFile",
+        "summary": "下载该会话获授权的模型原件",
+        "description": "需要会话成员资格、有效共享授权及文件指纹匹配。关闭共享即时限制后续下载，已获副本无法收回。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/messages": {
+      "post": {
+        "operationId": "sendTradeMessage",
+        "summary": "发送文字消息",
+        "description": "仅会话双方可发。重试相同写入沿用原幂等键。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeMutationReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/offers": {
+      "post": {
+        "operationId": "makeTradeOffer",
+        "summary": "商家发出新版沟通报价",
+        "description": "填写人民币总价（分）、预计发货天数、费用范围与运费约定。首版传 expectedVersion=0，后续传当前报价版本；报价的到期时间记录于 expiresAt。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeMutationReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeOfferRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/accept": {
+      "post": {
+        "operationId": "acceptTradeOffer",
+        "summary": "买家确认当前沟通报价",
+        "description": "仅会话买家可确认当前生效版本。确认写入会话记录，不创建订单或触发收款、发货或设备任务。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeMutationReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  }
+                },
+                "required": [
+                  "version"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/read": {
+      "post": {
+        "operationId": "markTradeRead",
+        "summary": "标记当前账号已读",
+        "description": "through 指已显示的最大序号，不能超过 lastSeq。已读位置只向前移动。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "unread": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "unread"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "through": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "through"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/trade/threads/{threadId}/sharing": {
+      "post": {
+        "operationId": "setTradeFileSharing",
+        "summary": "买家管理模型原件的共享授权",
+        "description": "仅发起咨询的买家可以变更非样件的共享授权。发送 thread.model.shareRevision 作为 expectedRevision；成功后重新读取会话取得最新授权及版本，历史记录保留变更消息。",
+        "responses": {
+          "200": {
+            "description": "成功。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeMutationReceipt"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TradeThreadId"
+          },
+          {
+            "$ref": "#/components/parameters/TradeWorkspace"
+          },
+          {
+            "$ref": "#/components/parameters/TradeCommandKey"
+          }
+        ],
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "shared": {
+                    "type": "boolean"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "shared",
+                  "expectedRevision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -984,6 +1768,38 @@
           "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
         },
         "example": "quote-example-001"
+      },
+      "TradeWorkspace": {
+        "name": "X-Gongzao-Workspace",
+        "in": "header",
+        "required": true,
+        "description": "GET /api/v2/session 返回的 workspaceContext，必须与当前账号或工作空间一致。",
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "TradeCommandKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "此写入的幂等标识，重试时沿用原值。已读操作按 through 单调更新。",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+        },
+        "example": "trade-command-001"
+      },
+      "TradeThreadId": {
+        "name": "threadId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+        }
       }
     },
     "responses": {
@@ -999,6 +1815,722 @@
       }
     },
     "schemas": {
+      "BudgetRequest": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ],
+            "default": "AUTO"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ],
+            "default": "standard"
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 1
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ],
+            "default": "mm"
+          },
+          "capabilityId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "shopId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "description": "可选，其他商家已公开的店铺 ID。选择店铺时须使用已登录账号并提交当前 workspaceContext。",
+            "pattern": "^shop_[a-f0-9-]{36}$"
+          }
+        },
+        "required": [
+          "modelId"
+        ],
+        "additionalProperties": false
+      },
+      "ModelBudget": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "pricingVersion": {
+            "type": "string"
+          },
+          "calculatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          },
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "modelVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "isSample": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ESTIMATED",
+              "REVIEW_REQUIRED"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "PLATFORM_REFERENCE",
+              "SHOP_CONFIG"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "GEOMETRY",
+              "SLICER",
+              "MIXED",
+              "MANUAL"
+            ]
+          },
+          "reasonCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "const": "CNY"
+          },
+          "payable": {
+            "const": false
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ]
+          },
+          "lowCents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "highCents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitLowCents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitHighCents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shippingCents": {
+            "type": "null"
+          },
+          "taxCents": {
+            "type": "null"
+          },
+          "includes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "materialsCompared": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "explanation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "pricingVersion",
+          "calculatedAt",
+          "modelId",
+          "modelName",
+          "modelVersion",
+          "isSample",
+          "status",
+          "source",
+          "basis",
+          "reasonCode",
+          "currency",
+          "payable",
+          "unit",
+          "qty",
+          "material",
+          "quality",
+          "lowCents",
+          "highCents",
+          "unitLowCents",
+          "unitHighCents",
+          "shippingCents",
+          "taxCents",
+          "includes",
+          "excludes",
+          "materialsCompared",
+          "explanation"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "REVIEW_REQUIRED"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "lowCents": {
+                  "type": "null"
+                },
+                "highCents": {
+                  "type": "null"
+                },
+                "unitLowCents": {
+                  "type": "null"
+                },
+                "unitHighCents": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "lowCents": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "highCents": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unitLowCents": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "unitHighCents": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      "TradeShop": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "revision"
+        ]
+      },
+      "TradePublicShop": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "name": {
+            "type": "string"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mine"
+        ]
+      },
+      "TradeOffer": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "amountCents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "currency": {
+            "const": "CNY"
+          },
+          "leadDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "terms": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "shippingIncluded": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "acceptedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          }
+        },
+        "required": [
+          "version",
+          "amountCents",
+          "currency",
+          "leadDays",
+          "terms",
+          "shippingIncluded",
+          "createdAt",
+          "expiresAt",
+          "accepted"
+        ]
+      },
+      "TradeModelSnapshot": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "转换后的毫米尺寸，未解析的文件可以为空数组。"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "shareRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "isSample": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "format",
+          "dimensions",
+          "shared",
+          "shareRevision",
+          "isSample"
+        ]
+      },
+      "TradeThread": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "shopName": {
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/TradeModelSnapshot"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ]
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/ModelBudget"
+          },
+          "offer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TradeOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastMessage": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "buyer",
+              "merchant"
+            ]
+          },
+          "lastSeq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          },
+          "unread": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "shopName",
+          "model",
+          "quantity",
+          "unit",
+          "material",
+          "quality",
+          "estimate",
+          "offer",
+          "lastMessage",
+          "role",
+          "lastSeq",
+          "updatedAt",
+          "unread"
+        ]
+      },
+      "TradeMessage": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "offer",
+              "accepted",
+              "sharing"
+            ]
+          },
+          "sender": {
+            "type": "string",
+            "enum": [
+              "buyer",
+              "merchant"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix 时间戳，单位毫秒。"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "required": [
+          "seq",
+          "kind",
+          "sender",
+          "body",
+          "at"
+        ]
+      },
+      "TradeOpenRequest": {
+        "type": "object",
+        "properties": {
+          "shopId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^shop_[a-f0-9-]{36}$"
+          },
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "shareFile": {
+            "type": "boolean"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ],
+            "default": "AUTO"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ],
+            "default": "standard"
+          }
+        },
+        "required": [
+          "shopId",
+          "modelId",
+          "quantity",
+          "unit",
+          "shareFile",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "TradeMutationReceipt": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "threadId",
+          "seq"
+        ]
+      },
+      "TradeOfferRequest": {
+        "type": "object",
+        "properties": {
+          "amountCents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000
+          },
+          "leadDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "shippingIncluded": {
+            "type": "boolean"
+          },
+          "terms": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": [
+          "amountCents",
+          "leadDays",
+          "shippingIncluded",
+          "terms",
+          "expectedVersion"
+        ],
+        "additionalProperties": false
+      },
       "Error": {
         "type": "object",
         "properties": {
@@ -1034,7 +2566,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.8.0",
+            "const": "0.9.5",
             "type": "string"
           },
           "mode": {
@@ -1055,6 +2587,10 @@
           "realDevices": {
             "const": false,
             "type": "boolean"
+          },
+          "manufacturingOperations": {
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [

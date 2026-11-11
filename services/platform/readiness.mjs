@@ -1,3 +1,5 @@
+import { readTradeReadiness } from './trade-store.mjs';
+
 // Used by deployment health checks. All queries select constants or bounded
 // control state; the response never includes workspace or database contents.
 export async function readinessResponse(request, store, control) {
@@ -16,6 +18,7 @@ export async function readinessResponse(request, store, control) {
       await store.bucket.head('gongzao-readiness/storage-probe');
     }
     await control.intakeStatus();
+    await readTradeReadiness(store);
     ready = true;
   } catch {
     // The deployment operator can diagnose a failing binding separately.

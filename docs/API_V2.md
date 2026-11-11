@@ -1,3 +1,11 @@
+# v0.9.5 模型预算与店铺消息
+
+网页通过 `POST /api/v2/budget-estimate` 提交模型 ID、数量、单位、材料及精度，得到 CNY 分计价的预算或人工审核原因。此接口读取当前工作空间，无需收货地址。快递、税费和特殊后处理另计。已登录客户选定开放咨询的店铺后，可携带 `shopId` 和当前账号的工作空间绑定预览店铺预算。发起咨询时服务端以相同口径重新测算并冻结快照。
+
+店铺目录为 `GET /api/v2/trade/shops`。店铺开关位于 `/api/v2/trade/shop`。双方通过 `/api/v2/trade/threads` 发起询盘或读取自己的收件箱。详情、消息、已读游标、协商报价、接受及共享原件操作都限定于具体会话。除店铺目录外，会话接口要求已登录账号及 `X-Gongzao-Workspace`，写入还需传递 `Idempotency-Key`。角色由服务端依据登录账号及会话确定。客户可以给不同店铺分别授权原件。参与人和模型可见范围、并发场景及生产部署要求见[专项验证](TRADE_REVIEW_V0.9.5.md)。
+
+确认咨询中的协商报价仅改变该会话的状态。下列历史文档中的订单、模拟支付及设备执行仍遵循各自的工作空间规则。
+
 v0.9.4 的平台管理接口独立于客户/商家 API，入口为 `/api/admin/session`、`/api/admin/overview`、`/api/admin/business`、`/api/admin/actions`、`/api/admin/nodes/heartbeat`。管理员写入要求同源、已登录主体、有效角色、页面绑定的 `X-Gongzao-Admin-Context`、`expectedRevision` 和 `Idempotency-Key`。节点心跳使用独立节点凭据。部署探测为 `/ready`。详见[运维手册](ADMIN_OPERATIONS_V0.9.4.md)。
 
 # 共造 v0.8 模型需求、方案与履约沙盒 API（/api/v2）

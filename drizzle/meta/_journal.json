@@ -15,6 +15,13 @@
       "when": 1794366810918,
       "tag": "0001_platform_admin_control",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794371970895,
+      "tag": "0002_trade_conversations",
+      "breakpoints": true
     }
   ]
 }

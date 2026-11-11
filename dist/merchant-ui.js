@@ -1,3 +1,4 @@
+import { tradeInboxHref, hasPlatformRoutes } from './trade-return.js';
 import { get, prepareMutation } from './api-client.js';
 
 export function createMerchantUI({ operationsFactory, workflow, icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session, auth }) {
@@ -67,7 +68,7 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   }
   function overview(){
     const connected=onlineGateways();
-    return heading('BUSINESS WORKSPACE','工作台','欢迎回来，'+esc(state.profile.name)+'。',button('operations','生产中心')+button('inquiries','查看需求 '+I('arrow'),true))+summary()+
+    return heading('BUSINESS WORKSPACE','工作台','欢迎回来，'+esc(state.profile.name)+'。','<a class="btn" href="'+esc(tradeInboxHref('merchant',undefined,hasPlatformRoutes() && connection()!=='offline'))+'">买家消息</a>'+button('operations','生产中心')+button('inquiries','查看需求 '+I('arrow'),true))+summary()+
       '<div class="merchant-overview-grid"><section class="card overview-feature"><div class="overview-feature-icon">'+I('printer')+'</div><h2>接入设备</h2><p>连接本地网关，检测并批量添加已授权设备。</p><div class="overview-feature-actions">'+button('discover','检测并添加 '+I('plus'),true)+button('refresh','查询已接入设备')+'</div></section><section class="card gateway-overview"><div class="section-heading"><h2>本地网关</h2><span class="badge">'+connected.length+' 个在线</span></div><div class="gateway-graphic">'+I('network')+'</div><h3>'+(connected.length?'网关已连接':'连接第一台网关')+'</h3><p>在设备所在电脑运行网关，读取设备状态。</p>'+button('pair','连接网关 '+I('arrow'))+'</section></div>'+
       '<div class="merchant-bottom-note">'+I('shield')+'<span>已开放只读协议识别；具体机型、打印状态与生产能力仍需验证。</span><button class="text-link" data-merchant-action="demo">先体验添加流程 '+I('arrow')+'</button></div>';
   }

@@ -1,6 +1,20 @@
 <view class="page">
   <view class="eyebrow">COMPARE & CHOOSE</view><view class="title"><view>选一种，</view><view>适合你的交付。</view></view>
   <view class="demo-note">{{modeLabel}} · {{modeNote}} 选择后{{isLocal ? "保存本机演示订单" : "创建服务端沙盒订单"}}，无真实支付。</view>
+  <view wx:if="{{!isLocal && spec}}" class="card">
+    <view class="section-title">示例模型预算</view>
+    <view class="muted small">{{spec.material}} · {{spec.quantity}} 件 · 标准精度 · 毫米</view>
+    <view wx:if="{{budget}}">
+      <view wx:if="{{budget.estimated}}"><view class="price">{{budget.totalText}}</view><view>整单合计 · 每件约 {{budget.unitText}}</view></view>
+      <view wx:else class="section-title">待商家审核模型</view>
+      <view class="card-foot">{{budget.explanation}}</view>
+      <view wx:if="{{budget.estimated}}" class="card-foot">含{{budget.includes}}。另计{{budget.excludes}}。最终金额以商家方案为准。</view>
+    </view>
+    <view wx:if="{{budgetError}}" class="danger">{{budgetError}}</view>
+    <button wx:if="{{!budget}}" class="secondary" bindtap="loadBudget" disabled="{{budgetLoading}}">{{budgetLoading ? '正在估算…' : (budgetError ? '重新估算' : '先看模型预算')}}</button>
+    <view wx:if="{{!budget}}" class="muted small">估算无需填写收货地址。</view>
+  </view>
+  <button wx:if="{{!isLocal && spec && !quotes.length && !error && !loading}}" class="primary" bindtap="loadQuotes">获取含配送信息的沙盒报价</button>
   <button wx:if="{{!isLocal}}" class="ghost" bindtap="goProfile">账号资料与收货地址</button>
   <view wx:if="{{loading}}" class="card muted">正在获取报价…</view>
   <view wx:if="{{error}}" class="card"><view class="danger">{{error}}</view><button wx:if="{{addressRequired}}" class="primary" bindtap="goProfile">填写收货地址</button><button wx:else class="secondary" bindtap="loadQuotes">重新获取报价</button><button wx:if="{{!addressRequired && spec}}" class="ghost" bindtap="goUpload">修改材料与数量</button></view>

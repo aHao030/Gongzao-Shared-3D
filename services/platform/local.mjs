@@ -62,13 +62,13 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
           const fresh=randomBytes(32).toString('hex');ownerId='local_'+randomUUID();store.saveSession(hash(fresh),ownerId,clock()+30*86400000);
           setCookie=LEGACY_COOKIE+'='+fresh+'; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000'+(base.startsWith('https:')?'; Secure':'');
         }
-        const response=await handleApi(request,{store,ownerId,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations,adminControl});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
+        const response=await handleApi(request,{store,ownerId,accountId:account?.id ?? null,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations,adminControl});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
       }
       if(!['GET','HEAD'].includes(req.method))return reply(new Response('Method not allowed',{status:405}));
       const name=decodeURIComponent(appEntryAsset(url.pathname)).slice(1);
       if(name.includes('/')||name.includes('\\')||!MIME[path.extname(name)])return reply(new Response('Not found',{status:404}));
       const bytes=await fs.readFile(path.join(assetsDir,name));
-      return reply(staticAssetResponse(req.method==='HEAD' ? null : bytes, MIME[path.extname(name)]));
+      return reply(staticAssetResponse(req.method==='HEAD' ? null : bytes, MIME[path.extname(name)], url.pathname));
     }catch(error){return reply(jsonResponse({error:{code:error.code==='ENOENT'?'NOT_FOUND':'INTERNAL_ERROR',message:error.code==='ENOENT'?'未找到资源':'本地服务错误'}},error.code==='ENOENT'?404:500));}
   });
   return {server,store};

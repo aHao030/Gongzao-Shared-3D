@@ -23,10 +23,10 @@ export default {async fetch(request,env){
     const store = new D1Store(env.DB, env.BUCKET);
     const adminControl = createAdminControl({ store, bootstrapOwnerId: env.GONGZAO_ADMIN_OWNER ?? null });
     if(url.pathname==='/ready')return readinessResponse(request,store,adminControl);
-    return handleApi(request,{store,ownerId,accountAuthenticated:Boolean(ownerId),userLabel:'我的制造空间',adminControl});
+    return handleApi(request,{store,ownerId,accountId:ownerId,accountAuthenticated:Boolean(ownerId),userLabel:'我的制造空间',adminControl});
   }
   if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
   const asset=ASSETS[appEntryAsset(url.pathname)];
   if(!asset)return new Response('Not found',{status:404});
-  return staticAssetResponse(request.method==='HEAD' ? null : asset.body, asset.type);
+  return staticAssetResponse(request.method==='HEAD' ? null : asset.body, asset.type, url.pathname);
 }};

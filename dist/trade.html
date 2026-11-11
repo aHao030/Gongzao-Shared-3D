@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <title>询价消息 · 共造</title>
+  <link rel="icon" href="./app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./trade.css">
+</head>
+<body>
+  <a class="skip" href="#main">跳至主要内容</a>
+  <header class="bar"><div class="bar-inner"><a class="brand" href="./index.html"><img width="32" height="32" src="./app-icon.svg" alt="">共造</a><span class="divider"></span><span>消息中心</span><a class="back" id="return-home" href="./index.html">返回创作空间</a></div></header>
+  <main id="main">
+    <header class="page-head"><h1>询价消息</h1><nav aria-label="收件箱身份"><a id="buyer-tab" href="./trade.html?role=buyer">客户收件箱</a><a id="merchant-tab" href="./trade.html?role=merchant">商家收件箱</a></nav></header>
+    <div id="access" role="status">正在连接消息服务…</div>
+    <div id="app" hidden>
+      <div id="notice" role="status" hidden></div>
+      <div class="workbench">
+        <aside class="panel sidebar" aria-label="会话列表">
+          <div class="sidebar-head"><h2>会话</h2><div id="side-actions"></div></div>
+          <div id="shop-state"></div><div id="thread-list"></div>
+          <button type="button" id="more-threads" class="quiet" hidden>更多会话</button>
+        </aside>
+        <section class="panel conversation" aria-label="消息详情">
+          <div id="empty" class="no-conversation"><h2>选择一条会话</h2><p id="empty-note">在这里查看模型、消息和报价。</p></div>
+          <div id="conversation-body" hidden>
+            <header class="thread-head"><div><div id="thread-caption" class="meta"></div><h2 id="thread-title"></h2></div><button type="button" data-act="refresh">刷新</button></header>
+            <div id="context"></div>
+            <div id="stream" tabindex="0" aria-label="聊天记录"><button type="button" id="older" class="quiet" hidden>查看更早消息</button><ol id="messages" aria-label="时间顺序的消息"></ol></div>
+            <form id="composer"><label class="sr" for="message-text">消息内容</label><textarea id="message-text" rows="2" placeholder="输入消息…" maxlength="1000"></textarea><div class="composer-actions"><div id="offer-action"></div><button class="primary" type="submit">发送</button></div><p id="compose-error" class="error" role="alert" hidden></p></form>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <dialog id="trade-dialog" aria-labelledby="dialog-title"></dialog>
+  <noscript>请启用 JavaScript 后使用询价消息。</noscript>
+  <script type="module" src="./trade-ui.js"></script>
+</body>
+</html>

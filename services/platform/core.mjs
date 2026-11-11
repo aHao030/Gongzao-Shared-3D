@@ -1,9 +1,9 @@
-import { CURRENT_MESH_ANALYSIS, needsMeshAnalysis, modelForPricing, analyzeModel, sha256, ApiError } from './geometry.mjs';
+import { CURRENT_MESH_ANALYSIS, needsMeshAnalysis, modelForPricing, scaledModelGeometry, analyzeModel, sha256, ApiError } from './geometry.mjs';
 import { getCapabilities, getInquiries, saveCapability, createInquiry, saveProposal, acceptInquiry } from './inquiries.mjs';
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
 import { ACCOUNTING_CURRENCY, quoteMarketContext } from './market.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
-import { PRICING_VERSION, getPricingProfile, savePricingProfile, estimateBatch, estimateBatchPrice, settlementBreakdown } from './pricing.mjs';
+import { PRICING_VERSION, getPricingProfile, platformFeeForManufacturing, savePricingProfile, estimateBatch, estimateBatchPrice, estimatePartWeightGrams, settlementBreakdown } from './pricing.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
 import { findSliceEvidence, orderSliceConstraints } from './operations.mjs';
 
@@ -81,10 +81,6 @@ function readiness(payload) {
   check(payload.bedClear === true && payload.materialReady === true, 'READINESS_REQUIRED', '必须确认清台、设备无报警及材料余量充足');
   check(['PLA', 'PETG'].includes(payload.loadedMaterial), 'INVALID_MATERIAL', '备机材料仅支持 PLA / PETG', 400);
 }
-function modelTerms(model, unit) {
-  const factor = unit === 'inch' ? 25.4 : 1;
-  return { dimensions: model.dimensions.map(value => value * factor), volume: model.volume * factor ** 3 };
-}
 function validateConfiguration(payload, destination) {
   const config = { modelId: payload.modelId ?? 'sample-bracket', material: payload.material ?? 'PLA', quality: payload.quality ?? 'standard', qty: payload.qty ?? 1, unit: payload.unit ?? 'mm', destination };
   check(text(config.modelId) && own(materials, config.material) && ['standard', 'fine'].includes(config.quality) && ['mm', 'inch'].includes(config.unit) && own(destinations, config.destination), 'INVALID_CONFIGURATION', '模型、材料、层高、单位或地区无效', 400);
@@ -96,7 +92,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
   const { address, addressRevision, destination } = requireShippingAddress(workspace);
   const addressFingerprint = await digest(address);
   const config = validateConfiguration(payload, destination), model = modelForPricing(find(workspace.models, config.modelId, 'MODEL_NOT_FOUND'));
-  const geometry = modelTerms(model, config.unit);
+  const geometry = scaledModelGeometry(model, config.unit);
   const reviewReasons = [];
   if (model.review || model.closed !== true || model.format !== 'stl') reviewReasons.push('MODEL_REVIEW');
   if (!materials[config.material].auto) reviewReasons.push('PROCESS_REVIEW');
@@ -115,7 +111,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
     Object.assign(q, quoteMarketContext(address, q.review), { currency: ACCOUNTING_CURRENCY, priceStatus: q.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
     if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
-      let weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
+      let weight = estimatePartWeightGrams(geometry.volume, config.material, config.quality);
       const profile = getPricingProfile(workspace, farm.id);
       let economics = estimateBatchPrice({ profile: { ...profile, materialKey: config.material }, batch, singleWeightGrams: weight, quantity: config.qty, quality: config.quality });
       const sliced = findSliceEvidence(workspace, { modelId: model.id, modelHash: model.sha256, modelVersion: model.version ?? 1, qty: config.qty, unit: config.unit, material: config.material, farmId: farm.id, quality: config.quality, deviceIds: capability?.deviceIds });
@@ -132,7 +128,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
       } else q.estimateBasis='DEMO_GEOMETRY_ESTIMATE';
       const { productionHours, manufacturingCents, saleMaterialCents: materialCents, saleMachineCents: machineCents, saleFinishingCents: finishingCents } = economics;
       const hours = productionHours / config.qty;
-      const serviceCents = Math.ceil(manufacturingCents * 700 / 10000);
+      const serviceCents = platformFeeForManufacturing(manufacturingCents);
       const sameRegion = config.destination === farm.origin;
       const shippingCents = farm.shippingCents + (sameRegion ? 0 : config.destination === 'north' ? 800 : 400);
       const transitDays = sameRegion ? [1, 2] : config.destination === 'north' ? [3, 5] : [2, 3];

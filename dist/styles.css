@@ -297,3 +297,23 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 @media(max-width:360px){.header-nav[aria-label="个人导航"]{gap:6px}.header-nav[aria-label="个人导航"] button,.header-nav .customer-login-link{font-size:11px}}
 
 #quantity-error:empty{display:none}
+
+.model-budget{margin:18px 0;padding:18px 20px;border:1px solid #dedee1;border-radius:14px;background:#f7f7f8;color:#1d1d1f;text-align:left}
+.budget-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.budget-heading h3{font-size:14px;font-weight:600;margin:0}
+.budget-contact,.inbox-nav-link{color:#414145;text-decoration:none;white-space:nowrap;font-size:12px}
+.budget-contact{display:inline-flex;align-items:center;gap:4px;min-height:34px}
+.budget-contact:hover,.inbox-nav-link:hover{text-decoration:underline}
+.budget-amount{font-size:clamp(21px,2.1vw,32px);line-height:1.25;letter-spacing:-.04em;font-weight:650;font-variant-numeric:tabular-nums;margin:8px 0 6px;overflow-wrap:anywhere}
+.budget-meta,.budget-state,.budget-scope,.budget-details,.budget-retry{font-size:12px;line-height:1.6}
+.budget-meta,.budget-scope,.budget-state{color:#55555a;margin:4px 0 0}
+.budget-state{margin:8px 0 4px}
+.budget-retry{margin-top:8px}
+.budget-details{margin-top:12px;border-top:1px solid #dedee1;padding-top:4px}
+.budget-details summary{cursor:pointer;padding:7px 0;color:#414145}
+.budget-details dl{margin:3px 0}
+.budget-details dl>div{display:grid;grid-template-columns:5em minmax(0,1fr);gap:10px;margin:4px 0}
+.budget-details dt,.budget-details p{color:#646469}.budget-details dd{margin:0;overflow-wrap:anywhere}
+.budget-details p{margin:8px 0 0}
+.inbox-nav-link{display:inline-flex;align-items:center;min-height:44px}
+@media(max-width:390px){.inbox-nav-link{font-size:11px}.model-budget{padding:14px}}

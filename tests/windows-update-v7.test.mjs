@@ -61,6 +61,29 @@ test('tampered package fails before any backup or target change', async t => {
   assert.equal(await fs.readFile(path.join(f.target, 'package.json'), 'utf8'), f.old['package.json']);
 });
 
+test('POSIX updates restore launcher execute bits without granting execution to ordinary source files', {skip:process.platform==='win32'}, async t=>{
+  const f=await fixture(t);
+  const text='#!/bin/sh\nexit 0\n';
+  for (const name of ['start-linux.sh','start-macos.command']) {
+    await write(f.source,name,text);
+    await fs.chmod(path.join(f.source,name),0o644);
+    f.manifest.files.push({path:name,bytes:Buffer.byteLength(text),sha256:createHash('sha256').update(text).digest('hex')});
+  }
+  await write(f.target,'start-macos.command','old launcher');
+  await fs.chmod(path.join(f.target,'start-macos.command'),0o600);
+  await fs.chmod(path.join(f.target,'services/platform/local.mjs'),0o750);
+  await fs.chmod(path.join(f.target,'dist/index.html'),0o640);
+  await fs.chmod(path.join(f.source,'dist/new-ui.js'),0o755);
+  await f.saveManifest();
+  await applyUpdate(f);
+  const mode=async name=>(await fs.stat(path.join(f.target,name))).mode & 0o777;
+  assert.ok((await mode('start-linux.sh')) & 0o100);
+  assert.equal(await mode('start-macos.command'),0o700);
+  assert.equal(await mode('services/platform/local.mjs'),0o750);
+  assert.equal(await mode('dist/index.html'),0o640);
+  assert.equal((await mode('dist/new-ui.js')) & 0o111,0);
+});
+
 test('manifest cannot target protected paths, Windows aliases or path traversal', async t => {
   const invalid = ['../outside.txt', '/absolute.txt', 'C:/windows/file', 'dist\\x.js', 'dist/file:stream',
     'data/platform.sqlite', 'DATA/file', 'node_modules/module.js', '.git/config', '.env', '.env.production',
