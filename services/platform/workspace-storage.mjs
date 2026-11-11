@@ -6,7 +6,7 @@ import { ApiError } from './geometry.mjs';
 
 const ROW_LIMIT = 1024 * 1024;
 const EXPANDED_LIMIT = 6 * ROW_LIMIT;
-const PREFIX = 'GONGZAO-QUOTE-HISTORY-1\n';
+export const WORKSPACE_QUOTE_PREFIX = 'GONGZAO-QUOTE-HISTORY-1\n';
 const encoder = new TextEncoder();
 
 function capacityError() {
@@ -40,14 +40,14 @@ export async function encodeWorkspace(workspace) {
   if (encoder.encode(JSON.stringify(state)).byteLength >= ROW_LIMIT) throw capacityError();
   const compressed = new Blob([history]).stream().pipeThrough(new CompressionStream('gzip'));
   const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
-  const packed = PREFIX + JSON.stringify({ state, historySize: history.length, gzip: base64(bytes) });
+  const packed = WORKSPACE_QUOTE_PREFIX + JSON.stringify({ state, historySize: history.length, gzip: base64(bytes) });
   if (encoder.encode(packed).byteLength > ROW_LIMIT) throw capacityError();
   return packed;
 }
 
 export async function decodeWorkspace(row) {
-  if (!row.startsWith(PREFIX)) return JSON.parse(row);
-  const { state, historySize, gzip } = JSON.parse(row.slice(PREFIX.length));
+  if (!row.startsWith(WORKSPACE_QUOTE_PREFIX)) return JSON.parse(row);
+  const { state, historySize, gzip } = JSON.parse(row.slice(WORKSPACE_QUOTE_PREFIX.length));
   if (!Number.isSafeInteger(historySize) || historySize <= 0 || historySize > EXPANDED_LIMIT) {
     throw new Error('Invalid stored quote history length');
   }

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createWorkspace } from './core.mjs';
 import { decodeWorkspace, encodeWorkspace } from './workspace-storage.mjs';
+import { workspaceWriteSQL, inspectOrderConflictSQL, pauseBlockedCurrentRevision } from './order-intake-store.mjs';
 import { ApiError } from './geometry.mjs';
 
 export class SQLiteStore {
@@ -30,13 +31,13 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS local_model_files(owner TEXT NOT NULL,id TEXT NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(owner,id));`);
   }
   async load(owner) { const row=this.db.prepare('SELECT data FROM platform_workspaces WHERE owner=?').get(owner);return row?await decodeWorkspace(row.data):createWorkspace(); }
-  async transact(owner, operation, pendingFile, { queueQuote = false } = {}) {
+  async transact(owner, operation, pendingFile, { queueQuote = false, requireOpenIntake = false } = {}) {
     // Quotations are pure computations. Queue them per owner to avoid serializing
     // large histories for speculative writes that would lose the revision check.
     // Other operations, including remote inventory reads, keep their CAS flow.
-    if (!queueQuote) return this.writeWorkspace(owner, operation, pendingFile);
+    if (!queueQuote) return this.writeWorkspace(owner, operation, pendingFile, requireOpenIntake);
     const previous = this.pendingWrites.get(owner) ?? Promise.resolve();
-    const transaction = previous.then(() => this.writeWorkspace(owner, operation, pendingFile));
+    const transaction = previous.then(() => this.writeWorkspace(owner, operation, pendingFile, requireOpenIntake));
     const tail = transaction.catch(() => {});
     this.pendingWrites.set(owner, tail);
     try {
@@ -45,7 +46,7 @@ export class SQLiteStore {
       if (this.pendingWrites.get(owner) === tail) this.pendingWrites.delete(owner);
     }
   }
-  async writeWorkspace(owner, operation, pendingFile) {
+  async writeWorkspace(owner, operation, pendingFile, requireOpenIntake) {
     for(let attempt=0;attempt<40;attempt++) {
       const row=this.db.prepare('SELECT revision,data FROM platform_workspaces WHERE owner=?').get(owner);
       const current=row?await decodeWorkspace(row.data):createWorkspace();
@@ -53,9 +54,13 @@ export class SQLiteStore {
       const data = await encodeWorkspace(outcome.workspace);
       this.db.exec('BEGIN IMMEDIATE');
       try {
-      const result=row
-        ?this.db.prepare('UPDATE platform_workspaces SET revision=?,data=?,updated_at=? WHERE owner=? AND revision=?').run(outcome.workspace.revision,data,Date.now(),owner,row.revision)
-        :this.db.prepare('INSERT OR IGNORE INTO platform_workspaces(owner,revision,data,updated_at) VALUES (?,?,?,?)').run(owner,outcome.workspace.revision,data,Date.now());
+      const sql = workspaceWriteSQL(Boolean(row), requireOpenIntake);
+      const args = row ? [outcome.workspace.revision, data, Date.now(), owner, row.revision]
+        : [owner, outcome.workspace.revision, data, Date.now()];
+      const result = this.db.prepare(sql).run(...args);
+      if (requireOpenIntake && !result.changes && pauseBlockedCurrentRevision(this.db.prepare(inspectOrderConflictSQL).get(owner), row)) {
+        throw new ApiError(503, 'ORDER_INTAKE_PAUSED', '平台已暂停受理新订单，请稍后再试。已有订单可继续履约和申请售后。');
+      }
       if(result.changes===1){
         if(pendingFile)this.db.prepare('INSERT OR IGNORE INTO local_model_files(owner,id,bytes) VALUES (?,?,?)').run(owner,pendingFile.id,pendingFile.bytes);
         this.db.exec('COMMIT');return outcome;

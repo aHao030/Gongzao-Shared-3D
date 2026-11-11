@@ -2,7 +2,7 @@ import { ApiError, ensure, sha256 } from './geometry.mjs';
 import { applyOperationsCommand, getOperations } from './operations.mjs';
 import { getPublicWorkspace } from './core.mjs';
 import { requireMerchant } from './merchant.mjs';
-import { authenticateWorker, workerReadiness } from './worker-access.mjs';
+import { authenticateWorker, requireWorkerNode, workerReadiness } from './worker-access.mjs';
 import { requireMerchantAccess } from '../identity/authorization.mjs';
 
 const headers = { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer' };
@@ -96,7 +96,7 @@ export async function handleOperationsApi(request, {store,ownerId,accountAuthent
   } catch(error) { return errorResponse(error,requestId); }
 }
 
-export async function handleProductionWorkerApi(request,{store,clock=Date.now,workerAccess}={}) {
+export async function handleProductionWorkerApi(request,{store,clock=Date.now,workerAccess,adminControl}={}) {
   const requestId=crypto.randomUUID(),now=clock(),url=new URL(request.url);
   try {
     originGuard(request);
@@ -104,6 +104,7 @@ export async function handleProductionWorkerApi(request,{store,clock=Date.now,wo
     const workspace=await store.load(ownerId);requireMerchant(workspace);
     const download=url.pathname.match(/^\/api\/v2\/worker\/models\/(mdl_[a-zA-Z0-9_-]+)\/download$/);
     if(request.method==='GET' && download) {
+      await requireWorkerNode(principal,adminControl);
       const job=workspace.operations?.jobs?.find(job=>job.id===url.searchParams.get('jobId'));
       ensure(job && job.status==='LEASED' && job.workerId===workerId && job.leaseUntil>now && job.leaseToken===request.headers.get('x-job-lease') && job.attempt===Number(request.headers.get('x-job-attempt')) && kinds.includes(job.kind) && job.modelId===download[1],403,'WORKER_MODEL_DENIED','仅可读取当前任务租约绑定的模型');
       const model=workspace.models.find(model=>model.id===job.modelId);
@@ -117,7 +118,10 @@ export async function handleProductionWorkerApi(request,{store,clock=Date.now,wo
     const type=routes[url.pathname];ensure(type,404,'NOT_FOUND','计算服务接口不存在');
     const idempotencyKey=await scopedKey(request,'worker:'+workerId),payload=await body(request);
     if(type==='claim-job' && payload.kinds===undefined) payload.kinds=[...kinds];
-    const outcome=await store.transact(ownerId,w=>applyOperationsCommand(w,{type,payload,idempotencyKey},{now,workerId,workerKinds:kinds}));
+    const outcome=await store.transact(ownerId,async workspace=>{
+      await requireWorkerNode(principal,adminControl,{resultReport:type==='complete-job'||type==='fail-job'});
+      return applyOperationsCommand(workspace,{type,payload,idempotencyKey},{now:clock(),workerId,workerKinds:kinds});
+    });
     return json({...outcome.result,replayed:outcome.replayed===true,requestId});
   } catch(error) { return errorResponse(error,requestId); }
 }

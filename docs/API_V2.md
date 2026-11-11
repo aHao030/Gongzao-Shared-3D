@@ -1,3 +1,5 @@
+v0.9.4 的平台管理接口独立于客户/商家 API，入口为 `/api/admin/session`、`/api/admin/overview`、`/api/admin/business`、`/api/admin/actions`、`/api/admin/nodes/heartbeat`。管理员写入要求同源、已登录主体、有效角色、页面绑定的 `X-Gongzao-Admin-Context`、`expectedRevision` 和 `Idempotency-Key`。节点心跳使用独立节点凭据。部署探测为 `/ready`。详见[运维手册](ADMIN_OPERATIONS_V0.9.4.md)。
+
 # 共造 v0.8 模型需求、方案与履约沙盒 API（/api/v2）
 
 本文件描述 `services/platform` 当前实现；机器可读契约为 [openapi-v2.json](./openapi-v2.json)。旧 [API_CONTRACT.md](./API_CONTRACT.md) 描述独立的 v1 内存演示，不能用作当前网页的接口说明。

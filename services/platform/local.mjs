@@ -1,3 +1,4 @@
+import { readinessResponse } from './readiness.mjs';
 import http from 'node:http';
 import project from '../../package.json' with { type: 'json' };
 import { Readable } from 'node:stream';
@@ -6,21 +7,26 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SQLiteStore } from './store-sqlite.mjs';
-import { handleApi, jsonResponse, isAppEntryPath, staticAssetResponse } from './http.mjs';
+import { handleApi, jsonResponse, isAppEntryPath, appEntryAsset, staticAssetResponse } from './http.mjs';
 import { createLocalAuth, LEGACY_COOKIE } from './auth-local.mjs';
 import { loadWorkerAccess, readPrivateJSON } from './local-services.mjs';
 import { createIntegrationHub } from '../integrations/index.mjs';
 
+import { handleAdminHttp } from './admin-http.mjs';
+import { createAdminControl } from './admin-control.mjs';
+import { localBootstrapOwner } from './admin-bootstrap-local.mjs';
+
 const defaultAssets=fileURLToPath(new URL('../../dist/',import.meta.url));
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
 const hash=value=>createHash('sha256').update(value).digest('hex');
-export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platform.sqlite',assetsDir=defaultAssets,clock=Date.now,authConfig,authFetch,workerAccessConfig,integrationConfig,integrationHub,integrationFetch}={}) {
+export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platform.sqlite',assetsDir=defaultAssets,clock=Date.now,authConfig,authFetch,workerAccessConfig,integrationConfig,integrationHub,integrationFetch,adminBootstrapOwnerId}={}) {
   const workerAccess=loadWorkerAccess(workerAccessConfig);
   const externalPath=process.env.GONGZAO_INTEGRATIONS_CONFIG||process.env.INTEGRATIONS_CONFIG;
   const externalConfig=integrationConfig??readPrivateJSON(externalPath||'integrations.config.json',{optional:!externalPath})??{};
   const integrations=integrationHub??createIntegrationHub({config:externalConfig,fetchImpl:integrationFetch});
   const store=new SQLiteStore(dbPath);
   const auth=createLocalAuth(store,{clock,authConfig,authFetch});
+  const verifyBootstrap = () => adminBootstrapOwnerId === undefined ? localBootstrapOwner(store) : adminBootstrapOwnerId;
   const server=http.createServer({maxHeaderSize:16384,requestTimeout:30000},async(req,res)=>{
     const reply=async response=>{
       const headers=Object.fromEntries(response.headers),cookies=response.headers.getSetCookie();
@@ -40,20 +46,26 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
       const publicPage = ['GET','HEAD'].includes(req.method) && isAppEntryPath(url.pathname);
       const oauthCallback=req.method==='GET'&&url.pathname==='/api/auth/oidc/callback';
       if(!publicPage&&!oauthCallback&&((req.headers.origin&&req.headers.origin!==base)||req.headers['sec-fetch-site']==='cross-site'))return reply(jsonResponse({error:{code:'CROSS_ORIGIN_DENIED',message:'拒绝跨站请求'}},403));
-      if(url.pathname.startsWith('/api/')||url.pathname==='/health'){
+      if(url.pathname.startsWith('/api/')||url.pathname==='/health'||url.pathname==='/ready'){
         const headers=new Headers();for(const [key,value] of Object.entries(req.headers)){if(value&&!key.startsWith('oai-authenticated-user-'))headers.set(key,Array.isArray(value)?value.join(','):value);}
         const request=new Request(url,{method:req.method,headers,...(!['GET','HEAD'].includes(req.method)?{body:Readable.toWeb(req),duplex:'half'}:{})});
         if(url.pathname.startsWith('/api/auth/'))return reply(await auth.handle(request,{clientIP:req.socket.remoteAddress||'local'}));
         const account=auth.identity(request);
+        const adminControl = createAdminControl({ store, bootstrapOwnerId: verifyBootstrap(), verifyBootstrap, clock });
+        if(url.pathname==='/ready')return reply(await readinessResponse(request,store,adminControl));
+        if (url.pathname.startsWith('/api/admin/')) {
+          const memberExists = subject => Boolean(store.db.prepare('SELECT 1 FROM auth_users WHERE id=?').get(subject));
+          return reply(await handleAdminHttp(request, { actorId: account?.id ?? null, control: adminControl, store, clock, memberExists }));
+        }
         let ownerId=account?.owner||auth.legacyOwner(request),setCookie;
         if(url.pathname==='/api/v2/session'&&req.method==='GET'&&!ownerId&&!headers.has('authorization')){
           const fresh=randomBytes(32).toString('hex');ownerId='local_'+randomUUID();store.saveSession(hash(fresh),ownerId,clock()+30*86400000);
           setCookie=LEGACY_COOKIE+'='+fresh+'; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000'+(base.startsWith('https:')?'; Secure':'');
         }
-        const response=await handleApi(request,{store,ownerId,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
+        const response=await handleApi(request,{store,ownerId,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations,adminControl});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
       }
       if(!['GET','HEAD'].includes(req.method))return reply(new Response('Method not allowed',{status:405}));
-      const name=isAppEntryPath(url.pathname)?'index.html':decodeURIComponent(url.pathname).slice(1);
+      const name=decodeURIComponent(appEntryAsset(url.pathname)).slice(1);
       if(name.includes('/')||name.includes('\\')||!MIME[path.extname(name)])return reply(new Response('Not found',{status:404}));
       const bytes=await fs.readFile(path.join(assetsDir,name));
       return reply(staticAssetResponse(req.method==='HEAD' ? null : bytes, MIME[path.extname(name)]));

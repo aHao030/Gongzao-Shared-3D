@@ -8,6 +8,10 @@ const ENGINE = fileURLToPath(new URL('./engine.py', import.meta.url));
 const KINDS = ['ANALYZE_MODEL', 'SLICE_MODEL', 'SCHEDULE'];
 const HASH = /^[a-f0-9]{64}$/;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+export function isRetryableWorkerError(error) {
+  return ['PLATFORM_TIMEOUT', 'PLATFORM_UNAVAILABLE', 'PLATFORM_REQUEST_FAILED',
+    'WORKER_NODE_OFFLINE', 'WORKER_NODE_UNAVAILABLE'].includes(error.code);
+}
 export class WorkerError extends Error {
   constructor(code, message, status) { super(message); this.name = 'WorkerError'; this.code = code; this.status = status; }
 }
@@ -214,7 +218,7 @@ export class ManufacturingWorker {
       const result = await this.compute(job);
       report = { route:'complete', key:'worker-complete:' + randomUUID(), payload:{ jobId:job.id, leaseToken:job.leaseToken, attempt:job.attempt, result } };
     } catch (error) {
-      if (['PLATFORM_TIMEOUT', 'PLATFORM_UNAVAILABLE'].includes(error.code)) throw error;
+      if (isRetryableWorkerError(error) || error.code === 'WORKER_NODE_INACTIVE') throw error;
       report = { route:'fail', key:'worker-fail:' + randomUUID(), payload:{ jobId:job.id, leaseToken:job.leaseToken, attempt:job.attempt,
         errorCode:error instanceof WorkerError ? error.code : 'LOCAL_COMPUTATION_FAILED',
         errorMessage:error instanceof WorkerError ? error.message.slice(0, 300) : 'Local computation failed; inspect worker configuration' } };

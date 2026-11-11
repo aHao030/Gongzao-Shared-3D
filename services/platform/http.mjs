@@ -10,7 +10,13 @@ import { unconfiguredStatus } from '../integrations/catalog.mjs';
 
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
 const entryPaths = new Set(['/', '/index.html', '/login', '/login/', '/account/login', '/account/login/', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/']);
-export const isAppEntryPath = pathname => entryPaths.has(pathname);
+const adminEntryPaths = new Set(['/admin', '/admin/', '/admin/login', '/admin/login/']);
+export const isAdminEntryPath = pathname => adminEntryPaths.has(pathname);
+export const isAppEntryPath = pathname => entryPaths.has(pathname) || isAdminEntryPath(pathname);
+export function appEntryAsset(pathname) {
+  if (isAdminEntryPath(pathname)) return '/admin.html';
+  return entryPaths.has(pathname) ? '/index.html' : pathname;
+}
 export function staticAssetResponse(body, contentType) {
   return new Response(body, {headers: {
     'Content-Type': contentType, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
@@ -33,7 +39,7 @@ export async function readLimited(request,limit) {
   const bytes=new Uint8Array(size);let at=0;for(const chunk of chunks){bytes.set(chunk,at);at+=chunk.byteLength;}return bytes;
 }
 export function jsonResponse(data,status=200,extra={}) {return new Response(JSON.stringify(data),{status,headers:{...JSON_HEADERS,...extra}});}
-export async function handleApi(request,{store,ownerId,userLabel='创作者',clock=Date.now,accountAuthenticated=true,workerAccess,integrations}) {
+export async function handleApi(request,{store,ownerId,userLabel='创作者',clock=Date.now,accountAuthenticated=true,workerAccess,integrations,adminControl}) {
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
@@ -46,10 +52,10 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
     if (path.startsWith('/api/v2/merchant/')) {
       ensure(accountSession && ownerId, 401, 'ACCOUNT_LOGIN_REQUIRED', '请先登录共造账号，再进入商家工作台');
     }
-    if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess});
+    if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess,adminControl});
     if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.3',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.4',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
@@ -97,7 +103,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
       catch(error){if(error instanceof ApiError)throw error;throw new ApiError(400,'INVALID_JSON','请求体不是有效 JSON');}
       ensure(payload&&typeof payload==='object'&&!Array.isArray(payload),400,'INVALID_PAYLOAD','请求体必须为对象');
     }
-    const outcome=await store.transact(ownerId,workspace=>applyCommand(workspace,{type,payload,idempotencyKey:key},{now:clock(),idFactory:()=>crypto.randomUUID(),loadModelBytes:id=>store.getFile(ownerId,id)}),pendingFile,{queueQuote:type==='quote'});
+    const outcome=await store.transact(ownerId,workspace=>applyCommand(workspace,{type,payload,idempotencyKey:key},{now:clock(),idFactory:()=>crypto.randomUUID(),loadModelBytes:id=>store.getFile(ownerId,id),readOrderIntake:adminControl ? () => adminControl.intakeStatus() : undefined}),pendingFile,{queueQuote:type==='quote',requireOpenIntake:Boolean(adminControl) && (type==='order'||type==='accept-inquiry')});
     return jsonResponse({...outcome.result,mode:'SERVER_SANDBOX',workspace:getPublicWorkspace(outcome.workspace),replayed:outcome.replayed===true,requestId},type==='order'||type==='register-model'?201:200);
   }catch(error){
     const expected=error instanceof ApiError||['DomainError','PlatformError'].includes(error.name);

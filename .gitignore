@@ -37,3 +37,9 @@ integrations.config.json
 .venv*/
 __pycache__/
 *.pyc
+
+# Operational SQLite snapshots (including backups outside data/)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal

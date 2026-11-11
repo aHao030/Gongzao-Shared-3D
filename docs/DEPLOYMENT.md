@@ -1,3 +1,5 @@
+v0.9.4 的管理员开通、服务器接入、部署就绪与恢复步骤见 [管理员使用手册](ADMIN_OPERATIONS_V0.9.4.md)。
+
 > v0.9 当前接入流程见 [RELEASE_V0.9.md](RELEASE_V0.9.md)、[制造运算服务](MANUFACTURING_WORKER_V0.9.md) 与 [外部服务](INTEGRATIONS_V0.9.md)。下方历史记录保留其原验证日期，不能视为 v0.9 实测。
 
 # 共造 v0.8 运行与部署

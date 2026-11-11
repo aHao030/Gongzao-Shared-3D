@@ -317,3 +317,16 @@ test('security v0.7: expired account sessions and expired browser OAuth flows ca
   assert.equal((await h.request('/api/auth/session', { cookie })).data.authenticated, false);
   assert.equal((await h.request('/api/v2/merchant/devices', { cookie })).status, 401);
 });
+
+test('admin OIDC returns a verified account to the admin page and a cancelled authorization to admin login', async t => {
+  const h = await localHarness(t, { oidc: true });
+  const cancelled = await h.startFlow({ returnTo: '/admin' });
+  const back = await h.request('/api/auth/oidc/callback?state=' + cancelled.state + '&error=access_denied', { cookie: cancelled.cookie });
+  assert.equal(back.headers.get('location'), '/admin/login?auth_error=OIDC_FAILED');
+  const approved = await h.startFlow({ returnTo: '/admin' });
+  const result = await h.request(approved.callback, { cookie: approved.cookie });
+  assert.equal(result.headers.get('location'), '/admin');
+  const access = await h.request('/api/admin/session', { cookie: activeCookie(result) });
+  assert.equal(access.data.authenticated, true);
+  assert.equal(access.data.authorized, false);
+});

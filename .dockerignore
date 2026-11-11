@@ -10,3 +10,6 @@ dist/.openai
 .sites-runtime
 apps
 tests
+**/*.sqlite
+**/*.sqlite-*
+**/*.private.json

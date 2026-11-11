@@ -1,6 +1,6 @@
 {
   "name": "gongzao-shared-fabrication",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "type": "module",
   "description": "共造共享制造平台：模型询价、制造运算、生产库存与履约沙盒",
@@ -20,7 +20,10 @@
     "worker:configure": "node tools/create-worker-config.mjs",
     "worker": "node services/manufacturing-worker/cli.mjs",
     "integrations": "node services/integrations/cli.mjs",
-    "identity:configure": "node services/identity/setup.mjs"
+    "identity:configure": "node services/identity/setup.mjs",
+    "admin:setup": "node tools/admin-access.mjs",
+    "server:agent": "node tools/server-agent.mjs",
+    "admin:backup": "node tools/admin-backup.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.0",

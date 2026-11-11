@@ -1,0 +1,90 @@
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1d1d1f;background:#fafafa;font-size:15px;line-height:1.55;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0}
+button,input,select,textarea{font:inherit}
+button,.primary,.secondary{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 15px;border:1px solid #d9d9dc;border-radius:9px;background:#fff;color:inherit;cursor:pointer;text-decoration:none;font-size:14px;line-height:1.4}
+button:hover,.secondary:hover{background:#f0f0f2}
+button:disabled{cursor:wait;opacity:.65}
+:focus-visible{outline:2px solid #333;outline-offset:3px}
+a{color:inherit;text-underline-offset:3px}
+h1,h2,h3,p{margin:0}
+h1{font-size:clamp(30px,5vw,45px);line-height:1.2;letter-spacing:-.045em}
+h2{font-size:21px;letter-spacing:-.025em;line-height:1.4}
+h3{font-size:16px;line-height:1.45}
+.skip{position:fixed;z-index:3;top:8px;left:12px;transform:translateY(-160%);padding:8px;background:#fff}
+.skip:focus{transform:none}
+.mast{background:#fff;border-bottom:1px solid #e3e3e6}
+.mast-inner{height:64px;max-width:1160px;margin:auto;padding:0 36px;display:flex;align-items:center;gap:14px;font-size:13px;color:#57575d}
+.brand{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-size:21px;font-weight:650;letter-spacing:-.055em;color:#171719}
+.brand-rule{width:1px;height:16px;background:#dcdce0}
+.back{margin-left:auto;text-decoration:none;padding:10px 0}
+.back:hover,.quiet:hover{text-decoration:underline}
+main{width:min(100%,1160px);margin:0 auto;padding:46px 36px 70px}
+.loading,.muted,.help,.empty{color:#606066}
+.loading{margin:50px auto;text-align:center}
+.login{max-width:460px;background:#fff;border:1px solid #dedee1;border-radius:20px;padding:34px;margin:clamp(12px,6vh,62px) auto}
+.login h1{font-size:32px}
+.login p,.login details{margin-top:13px}
+.login>form,.login>.providers,.login>.actions{margin-top:26px}
+.login .primary{width:100%}
+.field{display:grid;gap:6px;margin-bottom:17px}
+.field label,.caption{font-size:13px;font-weight:600}
+.field input,.field select,.secretbox{width:100%;min-width:0;min-height:44px;border:1px solid #c8c8ce;border-radius:9px;padding:10px 11px;background:#fff;color:inherit}
+input[aria-invalid=true]{border:2px solid #19191c}
+.help,.meta,.note,.empty{font-size:13px;line-height:1.65}
+.primary{background:#202022;color:#fff;border-color:#202022;font-weight:600}
+.primary:hover{background:#3c3c3f}
+.quiet{background:transparent;border:0;color:#55555b}
+.help,.note,.meta{color:#65656b}
+.providers,.actions,.tabs,.row-actions,.title-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.providers a{flex:1 1 100px}
+.notice,.form-error-summary,.field-error{font-size:13px;line-height:1.65}
+.notice,.form-error-summary{padding:11px 15px;border:1px solid #d8d8dd;border-left:3px solid #303034;border-radius:8px;background:#f7f7f8;margin:12px 0}
+.field-error{font-weight:600;margin-top:2px}
+.form-error-summary p{margin:0}
+.form-error-summary ul{padding-left:16px;margin:3px 0 0}
+.form-error-summary button{border:0;padding:0;min-height:24px;background:none;text-decoration:underline;font-size:13px;justify-content:flex-start}
+[hidden]{display:none!important}
+.title,.panel-head,.record{display:flex;align-items:center;gap:18px;justify-content:space-between}
+.title{margin:6px 0 25px}
+.title .meta{margin-top:8px}
+.tabs{gap:4px;border-bottom:1px solid #dedee2;overflow:auto;flex-wrap:nowrap;margin-bottom:24px}
+.tabs button{border:0;border-radius:0;background:transparent;white-space:nowrap;padding:11px 15px;border-bottom:2px solid transparent}
+.tabs button[aria-current=page]{border-bottom-color:#19191b;font-weight:650}
+.panel{padding:25px;background:#fff;border:1px solid #dfdfe3;border-radius:16px;margin:0 0 16px}
+.panel-head{align-items:flex-start;margin-bottom:20px}
+.panel-head .help{margin-top:5px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0}
+.stats>div{padding:14px 12px;background:#f6f6f7;border-radius:10px}
+.stats strong{font-size:clamp(22px,3vw,34px);font-weight:550;font-variant-numeric:tabular-nums;display:block;line-height:1.3;margin-top:5px}
+.record{border-top:1px solid #e7e7ea;padding:17px 0;margin:0;min-width:0}
+.record:last-child{padding-bottom:0}
+.record>div{min-width:0}
+.record strong,.record .meta,.mono,.secretbox{overflow-wrap:anywhere}
+.record strong{display:block;font-size:15px;font-weight:600}
+.row-actions{flex-shrink:0}
+.row-actions button{font-size:13px;min-height:36px;padding:7px 11px}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#515157}
+.state:before{content:"";display:inline-block;width:7px;height:7px;border:1px solid #666;border-radius:50%}
+.state[data-status=ONLINE]:before{background:#242426;border-color:#242426}
+.mono,.secretbox{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}
+.mono{display:block;user-select:all}
+.audit-time{white-space:nowrap}
+.empty{padding:14px 0}
+dialog{width:min(460px,calc(100vw - 32px));max-height:85vh;max-height:85dvh;padding:26px;border:1px solid #d4d4d8;border-radius:16px;box-shadow:0 24px 90px #0002;color:inherit}
+dialog::backdrop{background:rgba(12,12,15,.35)}
+dialog h2{margin-bottom:14px}
+dialog .help{margin-bottom:16px}
+dialog .actions{margin-top:20px;justify-content:flex-end}
+.secretbox{resize:vertical;min-height:68px}
+details{font-size:13px}
+summary{cursor:pointer;padding:6px 0}
+@media(max-width:640px){
+  .mast-inner{height:56px;padding:0 16px;gap:10px}.mast-inner .back{font-size:12px}
+  main{padding:25px 15px 42px}.login{padding:23px 19px;border-radius:14px}
+  .panel{padding:18px 15px}.title{align-items:flex-start;gap:10px}.title-actions{justify-content:flex-end;gap:0}
+  .tabs button{min-height:44px;padding:10px 12px;font-size:13px}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .record{display:grid;gap:7px}.row-actions{gap:6px}.row-actions button{min-height:40px}
+  .panel-head{gap:8px}.panel-head button{white-space:nowrap}.audit-time{white-space:normal}
+}

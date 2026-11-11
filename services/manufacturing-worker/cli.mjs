@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadConfig, executeEngine, ManufacturingWorker } from './client.mjs';
+import { loadConfig, executeEngine, isRetryableWorkerError, ManufacturingWorker } from './client.mjs';
 
 export async function runCli(args = process.argv.slice(2), { log = console.log, error = console.error } = {}) {
   if (!args.length || args.includes('--help')) {
@@ -32,7 +32,7 @@ export async function runCli(args = process.argv.slice(2), { log = console.log, 
       catch (failure) {
         error('任务未完成：' + (failure.code ?? 'WORKER_FAILED') + '。已保留本地任务凭据，请先排查后使用原配置重试。');
         // Expired leases and rejected evidence require reconciliation, not blind new claims.
-        if (!['PLATFORM_UNAVAILABLE','PLATFORM_TIMEOUT','PLATFORM_REQUEST_FAILED'].includes(failure.code)) return 3;
+        if (args.includes('--once') || !isRetryableWorkerError(failure)) return 3;
       }
       if (args.includes('--once') || stopped) break;
       await new Promise(resolve => { release = resolve; timer = setTimeout(resolve, config.pollSeconds * 1000); }); release = null;

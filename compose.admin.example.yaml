@@ -1,0 +1,13 @@
+# Overlay for an independent server with an HTTPS reverse proxy on the host.
+# Set publicOrigin in the existing local auth.config.json before starting.
+services:
+  platform:
+    environment:
+      GONGZAO_AUTH_CONFIG: /run/gongzao-auth.json
+    volumes:
+      - type: bind
+        source: ./auth.config.json
+        target: /run/gongzao-auth.json
+        read_only: true
+        bind:
+          create_host_path: false

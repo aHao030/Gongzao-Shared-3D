@@ -375,7 +375,7 @@ function act(workspace, payload, now, idFactory) {
   project(order); return { order };
 }
 
-export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID(), loadModelBytes } = {}) {
+export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID(), loadModelBytes, readOrderIntake } = {}) {
   check(command && typeof command === 'object' && !Array.isArray(command), 'INVALID_INPUT', '命令无效', 400);
   const { type, payload = {}, idempotencyKey } = command;
   check(['register-model', 'quote', 'order', 'action', 'customer-profile', 'pricing-profile', 'capability', 'inquiry', 'proposal', 'accept-inquiry'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
@@ -394,6 +394,12 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
     return { workspace: original, result: clone(cached.result), replayed: true };
   }
   check(Object.keys(original.idempotency).length < 2000, 'IDEMPOTENCY_CAPACITY', '演示空间操作记录已达 2000 条，请创建新的演示空间');
+  // A completed request may be replayed during a pause. Only new orders
+  // and proposal acceptances pass this gate, including on a CAS retry.
+  if (readOrderIntake && (type === 'order' || type === 'accept-inquiry')) {
+    const intake = await readOrderIntake();
+    check(intake.paused === false, 'ORDER_INTAKE_PAUSED', '平台已暂停受理新订单，请稍后再试。已有订单可继续履约和申请售后。', 503);
+  }
   const workspace = clone(original);
   if ((type === 'quote' || type === 'inquiry') && loadModelBytes) {
     const oldModel = workspace.models.find(model => model.id === payload.modelId);
