@@ -62,10 +62,10 @@ export function createAuthUI({render, resetWorkspace = () => {}}) {
       const path=safeAuthPath(state.config.platform.signInUrl);
       body+='<p class="auth-hosted-note">此在线预览使用平台身份登录。独立部署版支持邮箱密码与配置后的第三方账号。</p>'+(path?'<a class="btn primary full" href="'+escape(path)+'">通过平台登录</a>':'<p>请重新打开平台登录入口。</p>');
     }
-    body+=providerList()+'<p class="auth-help auth-provider-note">'+escape(state.config.notice||'第三方登录需配置并审核后开通。')+'</p></div>';
+    body+='<details class="auth-alternatives"><summary>其他登录方式</summary>'+providerList()+'<p class="auth-help auth-provider-note">'+escape(state.config.notice||'第三方登录需配置并审核后开通。')+'</p></details></div>';
     return body;
   }
-  function renderPage(){return '<div class="merchant-login account-login"><div class="login-story"><div class="eyebrow">YOUR COFORGE ACCOUNT</div><h1>好的创意，<br/>值得成真。</h1><p>保存作品，查看订单。<br/>连接与你合拍的制造者。</p></div><section class="login-card">'+renderPanel()+'<a class="text-link auth-return" href="/">返回创作空间 →</a></section></div>';}
+  function renderPage(){return '<div class="merchant-login account-login"><div class="login-story"><div class="eyebrow">YOUR COFORGE ACCOUNT</div><h1>让创意，成真。</h1><p>保存作品，查看订单。<br/>连接与你合拍的制造者。</p></div><section class="login-card">'+renderPanel()+'<a class="text-link auth-return" href="/">返回创作空间 →</a></section></div>';}
   function captureForm(){
     const form=$('#auth-form');if(!form)return null;
     return ['auth-email','auth-password','auth-password-confirm','auth-name','auth-adopt'].map(id=>{const node=$('#'+id);return node?{id,value:node.value,checked:node.checked,focused:document.activeElement===node}:null;}).filter(Boolean);

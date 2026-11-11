@@ -26,7 +26,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
     if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess});
     if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.1',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');

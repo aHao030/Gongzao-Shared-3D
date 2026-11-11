@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "project": "gongzao-shared-fabrication",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "files": [
     {
       "path": ".dockerignore",
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 6689,
-      "sha256": "7bb382a9d9ecfc536b71bfdb0a0177c9777e0160d56fd2233784179a5d71eda6"
+      "bytes": 7246,
+      "sha256": "bfba67984f566e74e82e80bbdf0ef223381cc57382dfaced6ee0e60b653eeb74"
     },
     {
       "path": "START-WINDOWS.cmd",
@@ -375,13 +375,13 @@
     },
     {
       "path": "dist/app.js",
-      "bytes": 93495,
-      "sha256": "0cd0743a65537839a07e4e728afe2c92a43a57654b45c0b4a9c80050fbd9bdc0"
+      "bytes": 93869,
+      "sha256": "03f51d63ca6122c16007c58162a90e6ae3ff3f51816788e087c1840ddc434130"
     },
     {
       "path": "dist/auth-ui.js",
-      "bytes": 11456,
-      "sha256": "22a6af613082c09428f24eaf7b964a041a3a9ad13bfb21048fb0f8b9ee837401"
+      "bytes": 11527,
+      "sha256": "5ef9502921d3a405fbb8687504d1f8f9a2c6be4e199c409437a645f1ce8b58c4"
     },
     {
       "path": "dist/icons.svg",
@@ -405,28 +405,28 @@
     },
     {
       "path": "dist/merchant-ui.js",
-      "bytes": 40526,
-      "sha256": "c36d4faa216fc6a747d457cf3e4334e67d8cbc7a53d2c4b9d2356f5c6015afab"
+      "bytes": 40450,
+      "sha256": "7ecf6069f81c787009d4421ff87222eccafd57a2b0d40dfcf97ad7eda0da1cc5"
     },
     {
       "path": "dist/operations-ui.js",
-      "bytes": 43195,
-      "sha256": "5fefa8f5277b826e57ef848f92813e890eac1bd20ab9366ea20c616a5ac61c04"
+      "bytes": 43138,
+      "sha256": "f471870d820bbf0b87dcb357d1560c92b98502bc3dd5481b6d427162aa3eb78a"
     },
     {
       "path": "dist/styles.css",
-      "bytes": 91619,
-      "sha256": "a7aab1285b5d161422a0921f7b1c927e7daec7e6beb611776cb324d6eef70c88"
+      "bytes": 103423,
+      "sha256": "4f9c4f37d98fd1518a7d9cbf9fb6a612168836e6381d77ae38b45f505b4ac2d2"
     },
     {
       "path": "dist/sw.js",
-      "bytes": 1241,
-      "sha256": "7d8ff330a8845feebdef65eeb73b9075e07853abd742d476c96b19b0a5ec6b02"
+      "bytes": 1245,
+      "sha256": "bf79d2241cad4174baf232f26fcb879f3a9e6a852658f6c8548a329afae12ec8"
     },
     {
       "path": "dist/workflow-ui.js",
-      "bytes": 33595,
-      "sha256": "6b04f8bcd8656952f687324d7d8aa64d37cf6bce885d4b414247fdab2496d42b"
+      "bytes": 33680,
+      "sha256": "c669355926df8957f604d60eb59c9db6b25b06eb3fbe3a5333e4aa3610dbe193"
     },
     {
       "path": "docs/API_CONTRACT.md",
@@ -651,12 +651,12 @@
     {
       "path": "package-lock.json",
       "bytes": 50752,
-      "sha256": "f03229cf7096cd31f3e3b60314852438f8d71f39db94166c2ac97337433eccad"
+      "sha256": "b86c79222862ca5f5d2ec00161ab7963d16e015d6cde91e7cd51ac25dff4282a"
     },
     {
       "path": "package.json",
       "bytes": 1060,
-      "sha256": "8e743299589367e86dae7e4f5cc5b512b1bcc6c2e714c42691e902f915ead96c"
+      "sha256": "4b30b66407c16f6be09412c03686a82c90853707b951d69b67dc0c39d4004445"
     },
     {
       "path": "packages/domain/index.mjs",
@@ -871,7 +871,7 @@
     {
       "path": "services/platform/http.mjs",
       "bytes": 8102,
-      "sha256": "9a20a7533172c1549c7766314dc20fe67ef38678cc08ed5d67f885b0b1a3502b"
+      "sha256": "41f3c4ead906edd4c27a63f4d5b3bc3744ada32ee533d270777c6a4b15cd16ca"
     },
     {
       "path": "services/platform/inquiries.mjs",

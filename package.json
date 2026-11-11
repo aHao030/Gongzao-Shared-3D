@@ -1,6 +1,6 @@
 {
   "name": "gongzao-shared-fabrication",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "type": "module",
   "description": "共造共享制造平台：模型询价、制造运算、生产库存与履约沙盒",

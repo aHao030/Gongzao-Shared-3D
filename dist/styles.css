@@ -64,3 +64,214 @@ body{background:#fff;color:var(--ink);font-size:14px;line-height:1.6;letter-spac
 @media(max-width:1050px){.header-right:has(.header-nav[aria-label="商家导航"]){min-width:0;flex:1;justify-content:flex-end;gap:15px}.header-nav[aria-label="商家导航"]{min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:thin;gap:19px;white-space:nowrap}.header-nav[aria-label="商家导航"] button{flex-shrink:0}}
 @media(max-width:760px){.header-right:has(.header-nav[aria-label="商家导航"]) .portal-switch{display:none}.header-nav[aria-label="商家导航"]{gap:17px}}
 .ops-worker-state{display:flex;align-items:center;gap:15px;padding:0 0 8px}.ops-worker-state>.ops-note{margin:0!important;font-size:10px!important}.ops-worker-state>.ops-badge{white-space:nowrap}@media(max-width:640px){.ops-worker-state{display:block}.ops-worker-state>.ops-note{margin-top:9px!important}}
+
+/* Compact workspace: clear hierarchy, quieter surfaces, accessible menus. */
+:root{--ink:#1d1d1f;--muted:#6e6e73;--line:#e7e7e9;--bg:#fafafa}
+body{background:var(--bg);color:var(--ink)}
+button:hover{transform:none}
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #555;outline-offset:3px}
+.site-header{height:68px;background:rgba(255,255,255,.96);border-color:var(--line)}
+.site-header-inner{gap:24px}
+.site-header .brand-sub{font-size:10px;color:#747479}
+.header-right{gap:24px;min-width:0}
+.header-nav,.header-nav[aria-label="商家导航"]{gap:20px;overflow:visible;white-space:nowrap}
+.header-nav button,.header-nav[aria-label="商家导航"] button{font-size:12px;padding:12px 0;min-height:44px;color:#6e6e73}
+.header-nav button.active{color:#1d1d1f}
+.header-nav button.active:after{width:18px;bottom:5px}
+.portal-switch{font-size:12px;white-space:nowrap;min-height:44px}
+.nav-more{position:relative;flex-shrink:0}
+.nav-more>summary{display:flex;align-items:center;gap:6px;list-style:none;font-size:12px;color:#6e6e73;min-height:44px;padding:10px 0;cursor:pointer}
+.nav-more>summary::-webkit-details-marker{display:none}
+.nav-more>summary svg{width:12px;height:12px}
+.nav-more[open]>summary,.nav-more.active>summary{color:#1d1d1f}
+.nav-more.active>summary{font-weight:600}
+.nav-more-panel{position:absolute;right:-12px;top:calc(100% + 5px);width:174px;padding:6px;background:#fff;border:1px solid #e4e4e7;border-radius:12px;box-shadow:0 12px 32px #00000014;z-index:40}
+.header-nav .nav-more-panel button,.header-nav .nav-more-panel a{display:flex;align-items:center;width:100%;min-height:44px;padding:10px 12px!important;border-radius:7px;font-size:13px;text-align:left;color:#454549}
+.header-nav .nav-more-panel button:hover,.header-nav .nav-more-panel a:hover,.header-nav .nav-more-panel .active{background:#f5f5f7}
+.header-nav .nav-more-panel button.active:after{display:none}
+.main{padding:36px 40px 44px;min-height:calc(100vh - 148px)}
+.page-intro,.ops-center .page-intro{margin-bottom:26px;align-items:center}
+.page-intro .eyebrow{display:none}
+.page-intro h1{font-size:32px;line-height:1.3;letter-spacing:-1px}
+.page-intro p{font-size:13px;line-height:1.7;margin-top:10px;color:#6e6e73}
+.intro-actions{gap:18px;flex-wrap:wrap}
+.intro-actions .sample-link{font-size:12px;padding:10px 0;min-height:44px}
+.btn{border-radius:10px;min-height:42px;padding:10px 16px;font-size:12px}
+.btn.primary{background:#1d1d1f;border-color:#1d1d1f}
+.btn.tiny{border-radius:8px}
+.card{border-color:#e7e7e9;border-radius:14px}
+.card-head{padding:16px 20px}
+.card-head h2{font-size:14px}
+.card-head h2>svg{display:none}
+.workspace-grid{gap:24px;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}
+.viewer{height:300px;background:linear-gradient(135deg,#f7f7f8,#efeff1)}
+.viewer-note{color:#747479;font-size:10px;left:20px}
+.viewer-tools button{width:32px;height:32px}
+.model-strip{padding:16px 20px;gap:12px}
+.model-strip>div:nth-child(2){min-width:0}
+.model-name{font-size:12px;word-break:normal;overflow-wrap:anywhere}
+.file-meta{color:#76767c}
+.model-metrics.model-facts{grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);padding:16px 20px;background:#fff}
+.model-facts .metric span{font-size:10px;color:#76767c}
+.model-facts .metric strong{font-size:12px;overflow-wrap:anywhere}
+.requirement-card .form-body,.form-body{padding:20px}
+.requirement-card .card-head>.small{font-size:10px;color:#76767c}
+.field{margin-bottom:14px}
+.field-label{margin-bottom:7px;font-size:12px;font-weight:500}
+.input,.select{min-height:42px;font-size:13px;border-radius:8px;color:#343438}
+.stepper{height:42px;border-radius:8px}
+.stepper input{font-size:13px}
+.workflow-form-grid{gap:0 14px}
+.dimension-confirm{margin-bottom:16px;font-size:12px;color:#5f5f65}
+.workflow-note{font-size:11px;line-height:1.7;color:#6e6e73;margin-bottom:14px}
+.workflow-advanced{margin-top:16px;padding-top:14px}
+.workflow-advanced summary{font-size:12px;font-weight:500;min-height:28px;color:#5f5f65}
+.workflow-submit{margin-top:14px}
+.workflow-submit .btn{min-height:44px}
+.workflow-submit p{font-size:11px;color:#6e6e73;margin-top:8px}
+.workflow-inbox{margin-top:28px}
+.section-heading{margin:24px 0 14px}
+.section-heading h2,.ops-section-heading h2{font-size:17px}
+.inbox-empty-row{padding:18px 0;border-top:1px solid #e5e5e7;color:#6e6e73;font-size:12px}
+.workflow-mode-switch{margin-top:20px}
+.workflow-mode-switch .text-link{font-size:11px}
+.inquiry-card,.capability-card{padding:22px}
+.inquiry-heading h3,.capability-card h3{font-size:15px}
+.summary-grid{margin-bottom:24px;background:#fff;border-radius:14px}
+.summary-card{padding:18px 22px}
+.summary-card strong{font-size:29px;letter-spacing:-.6px;margin:6px 0 3px}
+.summary-card span{font-size:11px;color:#6e6e73}
+.summary-card p{color:#76767c;font-size:10px;line-height:1.6}
+.summary-card:not(:last-child):after{top:20px;bottom:20px}
+.overview-feature,.gateway-overview{padding:26px;background:#fff;border:1px solid #e7e7e9}
+.overview-feature-icon,.gateway-graphic{display:none}
+.overview-feature .eyebrow{display:none}
+.overview-feature h2{font-size:23px;margin-top:0}
+.overview-feature p,.gateway-overview p{font-size:13px;line-height:1.8;color:#6e6e73}
+.gateway-overview .section-heading{margin:0 0 20px}
+.gateway-overview h3{font-size:16px}
+.overview-feature-actions{margin-top:24px;gap:10px;flex-wrap:wrap}
+.merchant-bottom-note{margin-top:20px;color:#6e6e73;font-size:11px}
+.equipment-capability{display:inline-flex}
+.equipment-row{gap:16px}
+.empty-state{padding:38px 24px}
+.empty-state h3{font-size:17px;margin-top:12px}
+.empty-state p{font-size:12px;margin:9px 0 18px}
+.ops-sandbox-note,.workflow-sandbox-note{font-size:11px;border:0;border-radius:8px;background:#f0f0f2;padding:11px 14px;margin-bottom:20px;color:#64646a}
+.ops-summary{margin:22px 0;gap:16px}
+.ops-summary>div{padding-top:2px;padding-bottom:2px}
+.ops-summary strong{font-size:27px;margin:7px 0 5px}
+.ops-summary small{font-size:10px}
+.ops-tabs{border:0;border-bottom:1px solid #dedee2;background:transparent;border-radius:0;padding:0;gap:24px;width:100%;margin-bottom:22px}
+.ops-tabs button{padding:11px 0;border-radius:0;min-height:44px;border-bottom:2px solid transparent}
+.ops-tabs button.active{background:transparent;box-shadow:none;border-bottom-color:#1d1d1f}
+.ops-section-heading{margin:24px 0 14px}
+.ops-grid>.card{padding:22px}
+.ops-row{padding:18px 22px}
+.ops-empty{padding:30px 22px}
+.ops-empty h3{font-size:16px}
+.ops-empty p{font-size:12px}
+.ops-stock strong{font-size:26px}
+.ops-worker-state{padding-bottom:0}
+.site-footer{font-size:10px;padding:20px 0;color:#6e6e73}
+.site-footer>span:first-child{color:#6e6e73}
+.site-footer .text-link,.connection-status{color:#6e6e73}
+.merchant-login{gap:72px;min-height:520px;padding:24px 0;align-items:start}
+.login-story{padding-top:56px}
+.login-story .eyebrow{display:none}
+.login-story h1{font-size:44px;line-height:1.3;letter-spacing:-1.7px;margin:0 0 20px}
+.login-story>p{font-size:15px;color:#6e6e73;line-height:1.9}
+.login-benefits{gap:12px;margin-top:24px}
+.login-benefits span{color:#6e6e73;font-size:11px}
+.login-card{background:#fff;border:1px solid #e7e7e9;border-radius:16px;padding:28px}
+.login-description{margin:10px 0 22px;color:#6e6e73}
+.auth-alternatives>summary{min-height:28px;font-size:12px}
+.modal{border-radius:18px}
+.modal-header{padding:20px 24px 16px}
+.modal-header h2{font-size:19px}
+.modal-body{padding:22px 24px}
+.modal-footer{padding:16px 24px 22px}
+@media(max-width:1050px){
+ .site-header .brand-sub{display:none}
+ .site-header-inner{padding-inline:26px}
+ .header-nav,.header-nav[aria-label="商家导航"]{gap:16px;overflow:visible}
+ .main{padding:30px 26px 36px}
+ .page-intro h1{font-size:30px}
+ .equipment-capability{display:inline-flex}
+ .merchant-login{gap:36px}
+ .login-story h1{font-size:38px}
+ .workspace-grid{gap:20px}
+}
+@media(max-width:760px){
+ .site-header{height:auto}
+ .site-header-inner{display:grid;grid-template-columns:1fr auto;gap:0 12px;padding:8px 20px 0}
+ .site-header .brand{min-height:44px}
+ .site-header .brand-name{font-size:20px}
+ .header-right,.header-right:has(.header-nav[aria-label="商家导航"]){display:contents}
+ .header-nav,.header-nav[aria-label="商家导航"]{grid-column:1/-1;grid-row:2;display:flex;justify-content:space-between;gap:8px;overflow:visible;max-width:none;width:100%;border-top:1px solid #f0f0f2}
+ .header-nav button,.header-nav[aria-label="商家导航"] button{font-size:12px;min-height:46px;padding:12px 0}
+ .nav-more>summary{font-size:12px;min-height:46px}
+ .header-right .portal-switch,.header-right:has(.header-nav[aria-label="商家导航"]) .portal-switch{display:flex;grid-column:2;grid-row:1;font-size:12px;min-height:44px}
+ .nav-more-panel{right:0;width:174px}
+ .main{padding:26px 20px 32px;min-height:calc(100vh - 190px)}
+ .page-intro,.ops-center .page-intro{display:block;margin-bottom:22px}
+ .page-intro h1{font-size:29px;letter-spacing:-.8px}
+ .page-intro p{font-size:13px;line-height:1.75;margin-top:9px}
+ .intro-actions{margin-top:16px;justify-content:flex-start;gap:16px}
+ .intro-actions .btn{font-size:12px;min-height:44px;padding:10px 16px}
+ .workspace-grid{grid-template-columns:minmax(0,1fr);gap:20px}
+ .viewer{height:260px}
+ .card-head{padding:16px 18px}
+ .card-head .badge{font-size:10px}
+ .model-strip,.model-metrics.model-facts{padding:16px 18px}
+ .requirement-card .form-body,.form-body{padding:18px}
+ .field{margin-bottom:16px}
+ .input,.select,.stepper input{font-size:16px}
+ .input,.select,.stepper{min-height:44px;height:44px}
+ .stepper button{width:40px}
+ .requirement-card .card-head>.small{font-size:10px}
+ .workflow-form-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+ .workflow-advanced .workflow-form-grid{grid-template-columns:1fr}
+ .workflow-inbox{margin-top:24px}
+ .summary-grid{margin-bottom:20px}
+ .summary-card{padding:18px}
+ .summary-card strong{font-size:27px}
+ .merchant-overview-grid{gap:18px}
+ .overview-feature,.gateway-overview{padding:22px}
+ .overview-feature h2{font-size:21px}
+ .overview-feature-actions{gap:12px}
+ .equipment-row{flex-wrap:wrap;gap:12px}
+ .equipment-capability{display:inline-flex;min-height:36px;margin-left:auto}
+ .merchant-bottom-note{gap:10px;align-items:flex-start}
+ .ops-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 14px;margin:22px 0}
+ .ops-summary strong{font-size:25px}
+ .ops-tabs{gap:18px;justify-content:space-between}
+ .ops-tabs button{flex:initial;font-size:12px;padding:10px 0;min-height:44px}
+ .ops-row-actions>.btn,.ops-section-heading>.btn{min-height:40px;font-size:11px}
+ .ops-section-heading p{font-size:11px}
+ .ops-sandbox-note{font-size:11px}
+ .ops-form-grid{grid-template-columns:1fr}
+ .site-footer{margin:0 20px;gap:12px;line-height:1.8;flex-wrap:wrap}
+ .merchant-login{display:block;min-height:0;padding:0}
+ .login-story{padding:0 0 24px}
+ .login-story h1{font-size:30px;letter-spacing:-1px;margin-bottom:10px}
+ .login-story h1 br{display:none}
+ .login-story>p{font-size:13px}
+ .login-story>p br{display:none}
+ .login-benefits{display:none}
+ .login-card{padding:24px}
+ .modal-backdrop{padding:12px}
+ .modal{max-height:calc(100dvh - 24px);border-radius:16px}
+ .modal-header{padding:18px 20px 14px}
+ .modal-body{padding:20px}
+ .modal-footer{padding:14px 20px 20px}
+}
+@media(max-width:360px){
+ .site-header-inner{padding-inline:16px}
+ .main{padding-inline:16px}
+ .header-nav[aria-label="商家导航"]{gap:7px}
+ .header-nav[aria-label="商家导航"] button,.header-nav[aria-label="商家导航"] .nav-more>summary{font-size:11px}
+ .ops-tabs{gap:12px}
+ .model-metrics.model-facts{gap:10px}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
