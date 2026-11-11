@@ -1,6 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { requestJson } from './discovery.mjs';
 import { GatewayError, validateConfig } from './config.mjs';
+import { sanitizePartialDiagnostics } from './coverage.mjs';
+
+function observationPayload(command, observation, config) {
+  const monitorKeys = command.kind === 'monitor-bambu' ? new Set(command.deviceKeys) : null;
+  const records = Array.isArray(observation?.candidates) ? observation.candidates : [];
+  const candidates = monitorKeys ? records.filter(item => item?.protocol === 'bambu' && monitorKeys.has(item.deviceKey)) : records;
+  const diagnostics = sanitizePartialDiagnostics(observation?.diagnostics);
+  if (!config.bambuLan && !diagnostics.includes('BAMBU_LISTEN_DISABLED')) diagnostics.push('BAMBU_LISTEN_DISABLED');
+  const payload = {scanId:command.id,candidates};
+  if (diagnostics.length) payload.partialDiagnostics = diagnostics;
+  if (diagnostics.some(code => code !== 'BAMBU_LISTEN_DISABLED') && !candidates.length) {
+    payload.error = {code:'DISCOVERY_UNAVAILABLE',message:'本地发现未完成，请检查网关网络接口或设备地址配置'};
+  }
+  return payload;
+}
 
 export class GatewayClient {
   constructor(config,{transport=requestJson,clock=Date.now}={}) {this.config=validateConfig(config);this.transport=transport;this.clock=clock;this.pendingPoll=null;this.results=new Map();}
@@ -14,23 +29,24 @@ export class GatewayClient {
     if(response.status!==200)throw new GatewayError(response.status===401||response.status===403?'GATEWAY_AUTH_FAILED':'PLATFORM_REQUEST_FAILED','平台未接受网关请求');
     if(!response.data||typeof response.data!=='object'||Array.isArray(response.data))throw new GatewayError('INVALID_PLATFORM_RESPONSE','平台响应格式不正确');return response.data;
   }
-  async cycle(discover) {
+  async cycle(discover, activeConfig=this.config) {
     this.pendingPoll ||= 'gw-poll:'+randomUUID();
     const result=await this.post('poll',{},this.pendingPoll);this.pendingPoll=null;
     if(!Array.isArray(result.commands)||result.commands.length>8)throw new GatewayError('INVALID_PLATFORM_RESPONSE','平台命令列表不正确');
     const events=[];
     for(const command of result.commands){
-      if(command?.kind!=='discover'||typeof command.id!=='string'||command.id.length>160||!Number.isFinite(command.expiresAt)||command.expiresAt<=this.clock())continue;
+      if (!command || !['discover','monitor-bambu'].includes(command.kind) || typeof command.id !== 'string' || !command.id.length || command.id.length > 160 || !Number.isFinite(command.expiresAt) || command.expiresAt <= this.clock()) continue;
+      if (command.kind === 'monitor-bambu' && (!Array.isArray(command.deviceKeys) || !command.deviceKeys.length || command.deviceKeys.length > 32 ||
+        !command.deviceKeys.every(key => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key)))) continue;
       let cached=this.results.get(command.id);
       if(!cached){
-        let observation;try{observation=await discover();}catch{observation={candidates:[],diagnostics:['DISCOVERY_FAILED']};}
-        const payload={scanId:command.id,candidates:observation.candidates};
-        if(observation.diagnostics?.length&&!observation.candidates.length)payload.error={code:'DISCOVERY_UNAVAILABLE',message:'本地发现未完成，请检查网关网络接口或设备地址配置'};
+        let observation;try{observation=await discover(command);}catch{observation={candidates:[],diagnostics:['DISCOVERY_FAILED']};}
+        const payload=observationPayload(command,observation,activeConfig);
         cached={key:'gw-report:'+randomUUID(),payload,sent:false};this.results.set(command.id,cached);
         if(this.results.size>128)this.results.delete(this.results.keys().next().value);
       }
       if(!cached.sent){const report=await this.post('report',cached.payload,cached.key);if(report.accepted!==true)throw new GatewayError('INVALID_PLATFORM_RESPONSE','平台未确认发现结果');cached.sent=true;}
-      events.push({scanId:command.id,count:cached.payload.candidates.length,diagnostics:cached.payload.error?['DISCOVERY_UNAVAILABLE']:[]});
+      events.push({scanId:command.id,count:cached.payload.candidates.length,diagnostics:cached.payload.partialDiagnostics??[]});
     }
     return {events,pollAfterMs:Math.max(1000,Math.min(30000,Number(result.pollAfterMs)||5000))};
   }

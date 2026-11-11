@@ -317,3 +317,5 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .budget-details p{margin:8px 0 0}
 .inbox-nav-link{display:inline-flex;align-items:center;min-height:44px}
 @media(max-width:390px){.inbox-nav-link{font-size:11px}.model-budget{padding:14px}}
+
+.bambu-scan-list>summary{padding:12px 0;font-size:13px;font-weight:600;cursor:pointer}.bambu-scan-list>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px}

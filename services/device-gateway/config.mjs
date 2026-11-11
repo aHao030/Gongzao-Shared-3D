@@ -31,21 +31,41 @@ export function normalizeTarget(value,{allowLoopback=false}={}) {
   if(value.name!==undefined&&(typeof value.name!=='string'||value.name.length>80))fail('INVALID_NAME','设备名称过长');
   return {protocol:value.protocol,endpoint,name:value.name?.trim()||'',...(value.apiKey?{apiKey:value.apiKey}:{})};
 }
+export function normalizeBambuPrinter(value, {allowLoopback=false}={}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_BAMBU_PRINTER','拓竹授权记录格式不正确');
+  const host = value.host;
+  if (!isPrivateIPv4(host) && !(allowLoopback && host === '127.0.0.1')) fail('INVALID_BAMBU_HOST','请输入打印机所在局域网的 IPv4 地址');
+  const serial = typeof value.serial === 'string' ? value.serial.trim().toUpperCase() : '';
+  if (!/^[A-Z0-9]{6,32}$/.test(serial)) fail('INVALID_BAMBU_SERIAL','请核对打印机上显示的完整序列号');
+  if (typeof value.accessCode !== 'string' || !/^[A-Za-z0-9]{8}$/.test(value.accessCode)) fail('INVALID_BAMBU_CODE','LAN 访问码须为 8 位字母或数字');
+  const fingerprint = value.certificateFingerprint;
+  if (fingerprint !== undefined && (typeof fingerprint !== 'string' || !/^(?:[\da-f]{64}|(?:[\da-f]{2}:){31}[\da-f]{2})$/i.test(fingerprint))) {
+    fail('INVALID_BAMBU_CERTIFICATE','设备证书 SHA-256 指纹格式不正确');
+  }
+  if (value.name !== undefined && (typeof value.name !== 'string' || value.name.length > 80 || /[\x00-\x1f\x7f]/.test(value.name))) fail('INVALID_NAME','设备名称含无效字符或过长');
+  return { host, serial, accessCode:value.accessCode,
+    ...(fingerprint ? { certificateFingerprint:fingerprint.replaceAll(':','').toUpperCase() } : {}),
+    ...(value.name?.trim() ? { name:value.name.trim() } : {}) };
+}
 export function validateConfig(value) {
   if(!value||typeof value!=='object'||Array.isArray(value))fail('INVALID_CONFIG','网关配置必须是 JSON 对象');
   const platformUrl=normalizePlatform(value.platformUrl);
   if(typeof value.token!=='string'||value.token.length<32||value.token.length>2048||/\s/.test(value.token))fail('INVALID_TOKEN','请使用商家工作台生成的网关凭据');
   if(value.siteAccessToken!==undefined&&(typeof value.siteAccessToken!=='string'||value.siteAccessToken.length<16||value.siteAccessToken.length>8192||/\s/.test(value.siteAccessToken)))fail('INVALID_SITE_ACCESS','站点服务访问凭据格式不正确');
   if(value.mdns!==undefined&&typeof value.mdns!=='boolean')fail('INVALID_CONFIG','mdns 必须为布尔值');
+  if(value.bambuLan!==undefined&&typeof value.bambuLan!=='boolean')fail('INVALID_CONFIG','bambuLan 必须为布尔值');
+  if(value.bambuPrinters!==undefined&&(!Array.isArray(value.bambuPrinters)||value.bambuPrinters.length>100))fail('TOO_MANY_BAMBU_PRINTERS','每台网关最多配置 100 台拓竹授权设备');
   if(value.allowLoopbackTargets!==undefined&&typeof value.allowLoopbackTargets!=='boolean')fail('INVALID_CONFIG','allowLoopbackTargets 必须为布尔值');
   if(value.targets!==undefined&&(!Array.isArray(value.targets)||value.targets.length>32))fail('TOO_MANY_TARGETS','每次最多检测 32 个设备地址');
   const allowLoopbackTargets=value.allowLoopbackTargets===true;
   const targets=(value.targets||[]).map(target=>normalizeTarget(target,{allowLoopback:allowLoopbackTargets}));
-  return {platformUrl,token:value.token,...(value.siteAccessToken?{siteAccessToken:value.siteAccessToken}:{}),mdns:value.mdns!==false,allowLoopbackTargets,targets};
+  const bambuPrinters=(value.bambuPrinters || []).map(printer=>normalizeBambuPrinter(printer,{allowLoopback:allowLoopbackTargets}));
+  if(new Set(bambuPrinters.map(p=>p.host)).size !== bambuPrinters.length || new Set(bambuPrinters.map(p=>p.serial)).size !== bambuPrinters.length) fail('DUPLICATE_BAMBU_PRINTER','局域网地址或打印机序列号重复，请核对授权清单');
+  return {platformUrl,token:value.token,...(value.siteAccessToken?{siteAccessToken:value.siteAccessToken}:{}),mdns:value.mdns!==false,allowLoopbackTargets,targets,bambuLan:value.bambuLan!==false,bambuPrinters};
 }
-export async function loadConfig(filename) {
-  const stat=await fs.stat(filename);if(stat.size>32768)fail('CONFIG_TOO_LARGE','网关配置文件过大');
+export async function loadConfig(filename,{useEnvironment=true}={}) {
+  const stat=await fs.stat(filename);if(!stat.isFile()||stat.size>262144)fail('CONFIG_TOO_LARGE','请使用不超过 256 KiB 的普通网关配置文件');
   let value;try{value=JSON.parse(await fs.readFile(filename,'utf8'));}catch{fail('INVALID_CONFIG','无法解析网关 JSON 配置');}
-  if(!value.siteAccessToken&&process.env.GONGZAO_SITE_ACCESS_TOKEN)value.siteAccessToken=process.env.GONGZAO_SITE_ACCESS_TOKEN;
+  if(value && useEnvironment && !value.siteAccessToken&&process.env.GONGZAO_SITE_ACCESS_TOKEN)value.siteAccessToken=process.env.GONGZAO_SITE_ACCESS_TOKEN;
   return validateConfig(value);
 }

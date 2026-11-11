@@ -1,3 +1,4 @@
 # Preserve Windows launcher bytes and treat their CRLF endings as intentional.
 *.cmd -text whitespace=cr-at-eol
 *.ps1 -text whitespace=cr-at-eol
+services/device-gateway/bambu-printer-ca.cer -text

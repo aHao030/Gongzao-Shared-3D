@@ -8,6 +8,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SQLiteStore } from './store-sqlite.mjs';
 import { handleApi, jsonResponse, isAppEntryPath, appEntryAsset, staticAssetResponse } from './http.mjs';
+import { gatewayKitPath, gatewayKitResponse } from './gateway-kit-download.mjs';
+import { buildBambuGatewayKit } from '../../tools/build-bambu-gateway-kit.mjs';
 import { createLocalAuth, LEGACY_COOKIE } from './auth-local.mjs';
 import { loadWorkerAccess, readPrivateJSON } from './local-services.mjs';
 import { createIntegrationHub } from '../integrations/index.mjs';
@@ -27,6 +29,7 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
   const store=new SQLiteStore(dbPath);
   const auth=createLocalAuth(store,{clock,authConfig,authFetch});
   const verifyBootstrap = () => adminBootstrapOwnerId === undefined ? localBootstrapOwner(store) : adminBootstrapOwnerId;
+  let gatewayKit;
   const server=http.createServer({maxHeaderSize:16384,requestTimeout:30000},async(req,res)=>{
     const reply=async response=>{
       const headers=Object.fromEntries(response.headers),cookies=response.headers.getSetCookie();
@@ -65,6 +68,11 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
         const response=await handleApi(request,{store,ownerId,accountId:account?.id ?? null,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations,adminControl});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
       }
       if(!['GET','HEAD'].includes(req.method))return reply(new Response('Method not allowed',{status:405}));
+      if(url.pathname===gatewayKitPath){
+        gatewayKit ??= buildBambuGatewayKit().catch(error=>{gatewayKit=null;throw error;});
+        const bytes=await gatewayKit;
+        return reply(gatewayKitResponse(req.method==='HEAD'?null:bytes,bytes.length));
+      }
       const name=decodeURIComponent(appEntryAsset(url.pathname)).slice(1);
       if(name.includes('/')||name.includes('\\')||!MIME[path.extname(name)])return reply(new Response('Not found',{status:404}));
       const bytes=await fs.readFile(path.join(assetsDir,name));

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "project": "gongzao-shared-fabrication",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "files": [
     {
       "path": ".dockerignore",
@@ -10,8 +10,8 @@
     },
     {
       "path": ".gitattributes",
-      "bytes": 145,
-      "sha256": "ad0409e3a31443c64e6325a417f4fae1b0b32d94f4552037b1669599ac3da6ad"
+      "bytes": 196,
+      "sha256": "c96d1b89683e65fc792706dc93c26fff758daa540dba6912e03ec410fff040fc"
     },
     {
       "path": ".gitignore",
@@ -29,19 +29,24 @@
       "sha256": "549a33e68b92163f0f8db1a92ac5a19fd692238793ca421046a9827bc31e71d4"
     },
     {
+      "path": "BAMBU-GATEWAY-WINDOWS.cmd",
+      "bytes": 340,
+      "sha256": "c0ecf97599d9f38713479f61b4e9d7cc9eb57a149d74b705198a0252fe864520"
+    },
+    {
       "path": "CHANGELOG.md",
-      "bytes": 4683,
-      "sha256": "b277aeefea2a9a8aa7aa1cd61a155193f1af1e7501ee1c6b7183e36b061b5512"
+      "bytes": 5484,
+      "sha256": "f3de2d72b2a8cfc580eea200366fcba4f7d10e818cfd10668b4a40f168cd151a"
     },
     {
       "path": "Dockerfile",
-      "bytes": 657,
-      "sha256": "a080207b02baef05964ffb5e7a4c9e086831d1e4151bad2ac7d9a3cc171ca84d"
+      "bytes": 741,
+      "sha256": "02912c8206b7dfc833a043ef67cd60c0b35f3a5c382b5878917462403eabca81"
     },
     {
       "path": "README.md",
-      "bytes": 10693,
-      "sha256": "341efb6d18f7a77853567888eb7e77558bde0037f379b3ba022f25375147248b"
+      "bytes": 11217,
+      "sha256": "33a405e4d2c976012d7cf4b79195d166d07c7a8e96ea254a7d7e21bc6c673b15"
     },
     {
       "path": "START-WINDOWS.cmd",
@@ -420,8 +425,8 @@
     },
     {
       "path": "dist/app.js",
-      "bytes": 98817,
-      "sha256": "5545068c4155321f8f831f6cd7f1194534ad2a5ecc2761ccb045a2f5f9667f58"
+      "bytes": 98804,
+      "sha256": "be7164fdff2028305553486d69baf2720d2e12ecb13e897ebe28492cb97c92f8"
     },
     {
       "path": "dist/auth-ui.js",
@@ -460,8 +465,8 @@
     },
     {
       "path": "dist/merchant-ui.js",
-      "bytes": 40873,
-      "sha256": "db6418f643c35dc39d604706650ad8fa22616ed9ca8fead24540cd151e65e666"
+      "bytes": 48730,
+      "sha256": "29804755a7cb79ceeba3094e026c7899382c7beb0c44edde532a81a0d2b4b36d"
     },
     {
       "path": "dist/operations-ui.js",
@@ -470,13 +475,13 @@
     },
     {
       "path": "dist/styles.css",
-      "bytes": 107174,
-      "sha256": "628c6048b894bca4cddbf17bc0b3002511cb347531a8104d010cc8ecad6e9309"
+      "bytes": 107351,
+      "sha256": "5b7153f242e8fb2c89134dc945508e44b8c95dbba54b98b6a8040d10a2a9d308"
     },
     {
       "path": "dist/sw.js",
       "bytes": 1346,
-      "sha256": "bf26c473ba7ac9ada03994f9169f95d0b0570bfea758ac8eeb450a5cb5f0f304"
+      "sha256": "0632c07e202f3fc999cf7e523ee8fad0b309a2ab4436de7220130d5bf44f5b82"
     },
     {
       "path": "dist/trade-return.js",
@@ -515,8 +520,8 @@
     },
     {
       "path": "docs/API_V2.md",
-      "bytes": 34184,
-      "sha256": "7ecabcc5db37f96941580065d3771ab28444008ab4fd7550fd7600d7a7dbd742"
+      "bytes": 34810,
+      "sha256": "bb8d059a48b5de16d5f91373bbd26a092c34d010e5c7a5dd60c4b67dff5a4c49"
     },
     {
       "path": "docs/ARCHITECTURE.md",
@@ -527,6 +532,11 @@
       "path": "docs/AUDIT_V0.9.3.md",
       "bytes": 10292,
       "sha256": "78798646fa8007fdc7958f59ccea9610bf3ba5f5ed5924db31971ed059c2ce17"
+    },
+    {
+      "path": "docs/BAMBU_FLEET_V0.9.6.md",
+      "bytes": 7817,
+      "sha256": "72b6e9e03abae81a37e3dd0b416f0919472d6900103233c38f98e3870ce4be40"
     },
     {
       "path": "docs/BATCH_PRICING_V0.6.md",
@@ -595,8 +605,8 @@
     },
     {
       "path": "docs/MERCHANT_GUIDE.md",
-      "bytes": 11988,
-      "sha256": "8ed6fc6fc5ee0086793b3942ba9fe8741d8035bc5f4c3e896e99ce8236bb633a"
+      "bytes": 12276,
+      "sha256": "d178659138b2390629f1a2bca8ed8d5edac8f69ed284bfe31365d84960f1c394"
     },
     {
       "path": "docs/MODEL_WORKFLOW_V0.8.md",
@@ -685,8 +695,8 @@
     },
     {
       "path": "docs/VALIDATION.md",
-      "bytes": 24955,
-      "sha256": "9b77fb1483ca757a730d6735d1774509d7dcafe2edfd75549ee4deb0cad2649a"
+      "bytes": 26464,
+      "sha256": "81b488468b4143e5bce35972aff7d7bba72472cdab6e48ae4482647abd6583ce"
     },
     {
       "path": "docs/acceptance-v0.5.png",
@@ -697,6 +707,11 @@
       "path": "docs/address-v0.4.png",
       "bytes": 48555,
       "sha256": "bbe932afd250396678d3c7fdde6d22306eca883631fb53ec6c17ff36e463518a"
+    },
+    {
+      "path": "docs/audits/TRIPARTITE_REVIEW_V0.9.5.md",
+      "bytes": 72233,
+      "sha256": "126bd464c8eb63ee4ee0faea21949b8d4deb38712a9e97ee3ca43e03e73ee7c0"
     },
     {
       "path": "docs/merchant-devices-v0.3.png",
@@ -710,8 +725,8 @@
     },
     {
       "path": "docs/openapi-v2.json",
-      "bytes": 159958,
-      "sha256": "0e73cd863f11b64c8a136564ea33f055fce1352ac07af2d572f8b2d1d03a264b"
+      "bytes": 159997,
+      "sha256": "fe3b0dbc9050ed5d6a15fe340cf316e7df56f3ee1c0c3325ca3a1b2d6acbdf85"
     },
     {
       "path": "docs/payments-v0.4.png",
@@ -771,12 +786,12 @@
     {
       "path": "package-lock.json",
       "bytes": 50752,
-      "sha256": "423dfe38accd4aa5404b5160644cf67cef50eb9bf6baa35a03740a74ca959192"
+      "sha256": "505db0da4d9e91aca707fa78e69964df56b6dab5cc7786612c1899e2d09cb020"
     },
     {
       "path": "package.json",
       "bytes": 1212,
-      "sha256": "533793fe86d92652f9fe34e908ba12d7d277934f3033196ba461e38b7abec6e8"
+      "sha256": "d1b219ba74f68f84826fccbd18b7b72ce7b01e4cf68c5f3ba17e50e18ff7b206"
     },
     {
       "path": "packages/domain/index.mjs",
@@ -794,34 +809,54 @@
       "sha256": "35136c5650d0ead174f5b2d8778a6761defb83040a3114b2463866d3e19697ec"
     },
     {
+      "path": "services/device-gateway/bambu-discovery.mjs",
+      "bytes": 9931,
+      "sha256": "997a2d5e99847749586ba667aa2993fc68cfc0ddeb4af2dfd3aaab652b5cdb13"
+    },
+    {
+      "path": "services/device-gateway/bambu-printer-ca.cer",
+      "bytes": 6540,
+      "sha256": "36f2bcee347ec7adce719b5fd350099591a4d3d0ec4e039c7019890d78e152a0"
+    },
+    {
+      "path": "services/device-gateway/bambu-status.mjs",
+      "bytes": 10736,
+      "sha256": "1130dfe8c5573e119e7a345b243b513a066649df73974cb395dacb7346efa6c1"
+    },
+    {
       "path": "services/device-gateway/cli.mjs",
-      "bytes": 2152,
-      "sha256": "3b298f13f93f68ff1447b49dc565f773f66831ecc5d2e878dc2ecf9e3c2b0874"
+      "bytes": 3536,
+      "sha256": "08cfd2eba777c823b0f48a2e029c86a99fbfe6a16cbf895d30875f893a6e0962"
     },
     {
       "path": "services/device-gateway/client.mjs",
-      "bytes": 3426,
-      "sha256": "30e1d263d33ac1e257a022a816826f5c4b5c6d8a0a3d0ba616f57523f936d5f6"
+      "bytes": 4570,
+      "sha256": "1109b699226474872ab1102008c69c2fb527ae3df0c8aa98800c20d63e66c955"
     },
     {
       "path": "services/device-gateway/config.example.json",
-      "bytes": 287,
-      "sha256": "f954074ac241a4f9c9004dbd801a4cb2bcc32e8765d30018056f7cabbc0553a1"
+      "bytes": 330,
+      "sha256": "5ad20584a63a326e13ca887afce5dfe53cd2229579cc47bdb1bf51f737a47f13"
     },
     {
       "path": "services/device-gateway/config.mjs",
-      "bytes": 4337,
-      "sha256": "31f5c61365bf8bffb729f636c925ffb86807f485a4ce5d16f49ddb5df33436c0"
+      "bytes": 6635,
+      "sha256": "296da0da3d10e61c62d73843b792e9e6954b6ab07b4934472750a476ee79a6f7"
+    },
+    {
+      "path": "services/device-gateway/coverage.mjs",
+      "bytes": 1134,
+      "sha256": "c556d0a5d7dcdcba43c7cd48efb73ab0e1fe56868b42c8d776268fa830770ebe"
     },
     {
       "path": "services/device-gateway/discovery.mjs",
-      "bytes": 5014,
-      "sha256": "84ed2ede51b0eb415b752e357a9f500dfbf52ae9f016f5de0df7071e02326067"
+      "bytes": 8506,
+      "sha256": "fd5d3f721d3cef2e3ec79a5299f2dd5df16ecbeac64402c874a8e2f775082ed0"
     },
     {
       "path": "services/device-gateway/mdns.mjs",
-      "bytes": 5705,
-      "sha256": "0a43545c9dfe431f3dc22264c8e66a5e09360fd293ada7cdd2395e113ff31e26"
+      "bytes": 5944,
+      "sha256": "37fdd46c89a12bc044bfea31885de96b1d7b170af2c9fd46398f3cd4345599bb"
     },
     {
       "path": "services/gateway-simulator/demo.mjs",
@@ -1014,6 +1049,11 @@
       "sha256": "45a0a60d080f0c7877213d175f735a5e4737665fbd8a193a8243236c2d0c7395"
     },
     {
+      "path": "services/platform/gateway-kit-download.mjs",
+      "bytes": 424,
+      "sha256": "ea0488b6b53a96510da5a1d90689dbca6ee0249622e25ee38f54dafc39a5b77b"
+    },
+    {
       "path": "services/platform/geometry.mjs",
       "bytes": 6303,
       "sha256": "2c02e9d0ac4be75d35972579b16cc7c4c0de56f8c9edb4ca90e34ce07f488689"
@@ -1026,7 +1066,7 @@
     {
       "path": "services/platform/http.mjs",
       "bytes": 12131,
-      "sha256": "4164eec572510f70f034d5355417a9a0360e2da83b94840494300118bca7dfeb"
+      "sha256": "fca32d6b4cc1b4eb95097b68e059671b89e21896aa76430cf51d448a2f9aaee1"
     },
     {
       "path": "services/platform/inquiries.mjs",
@@ -1040,8 +1080,8 @@
     },
     {
       "path": "services/platform/local.mjs",
-      "bytes": 7445,
-      "sha256": "8bfa18acc4e1830360458e9337d10b540d9a45f6a35250472bc830ec33e917ea"
+      "bytes": 7890,
+      "sha256": "4415f33b1948c6426249abb3ad751ef425ca994d1d2a74de5d94ec04341f1ced"
     },
     {
       "path": "services/platform/market.mjs",
@@ -1055,8 +1095,8 @@
     },
     {
       "path": "services/platform/merchant.mjs",
-      "bytes": 23055,
-      "sha256": "f5cd165f49580065311d54680cd06a8243433c543cf884980312dc984c7c36b1"
+      "bytes": 34710,
+      "sha256": "fa02604e17a2a4b083c510adebad0e1ba6c7b3f6cc2be4a5f40b176aa295e2b8"
     },
     {
       "path": "services/platform/operations-http.mjs",
@@ -1115,8 +1155,8 @@
     },
     {
       "path": "services/platform/worker.mjs",
-      "bytes": 2080,
-      "sha256": "7857931b92ba2e7024365e9bfcb140b99bce00b5d06d1dfdb5805b1781e384d0"
+      "bytes": 2356,
+      "sha256": "804870ab68aedf1e85913da1dc79d4e9ee588a2fd3253100775ae9e994d1de6b"
     },
     {
       "path": "services/platform/workspace-storage.mjs",
@@ -1234,6 +1274,41 @@
       "sha256": "3d01bbb141c6dfc2f37ca336ec638e670c62ee13f473ddb62c25c23bf04a9820"
     },
     {
+      "path": "tests/bambu-configuration-v096.test.mjs",
+      "bytes": 9752,
+      "sha256": "5c0285c73354577809cda22e03220b2ad0aa91379d15df3df81561f9b6b04da9"
+    },
+    {
+      "path": "tests/bambu-discovery-v096.test.mjs",
+      "bytes": 11808,
+      "sha256": "4916a0dd78482b7f565a6e77b5d5661ef8ff783d2da7decc6fda22744e81884c"
+    },
+    {
+      "path": "tests/bambu-fleet-v096.test.mjs",
+      "bytes": 13146,
+      "sha256": "9177339a9f3fa02b8d39647c9114faa9ea39387caa08591c52f735739477f1a9"
+    },
+    {
+      "path": "tests/bambu-gateway-kit-v096.test.mjs",
+      "bytes": 4010,
+      "sha256": "97a27f921f3f1811a2c763f14e20039639c263ff28553fbd1c8723aad64ef466"
+    },
+    {
+      "path": "tests/bambu-merchant-ui-v096.test.mjs",
+      "bytes": 9326,
+      "sha256": "5f4d900527e0a2098267e8f86acbd54ad332e94c47c784b22c3ba338113a4915"
+    },
+    {
+      "path": "tests/bambu-registry-v096.test.mjs",
+      "bytes": 12301,
+      "sha256": "68bc816471d9c58877296be925c83626c5370579706dbe89332dcad2bfb1e966"
+    },
+    {
+      "path": "tests/bambu-status-v096.test.mjs",
+      "bytes": 9028,
+      "sha256": "ecd576f6a668deda07fc49c27c03a99721a6b075b1e2975a9eb8e8c0307199e7"
+    },
+    {
       "path": "tests/batch-pricing-v6.test.mjs",
       "bytes": 5978,
       "sha256": "13c14f30822a4c601ae749724ca8af7b99261dafdd046b01a6b623bf89c59333"
@@ -1280,8 +1355,8 @@
     },
     {
       "path": "tests/gateway-discovery.test.mjs",
-      "bytes": 13317,
-      "sha256": "482e83d3ea2b7dd2e9e5c80b6c7c254b9d845d853f1efb5690648ae2765eea13"
+      "bytes": 13332,
+      "sha256": "06a1a76bf2396082e3fc34eb69a6c020241d7d84e580ffa2066dfa3783a1acbc"
     },
     {
       "path": "tests/helpers/customer-fixture.mjs",
@@ -1489,9 +1564,19 @@
       "sha256": "8ca244d2589e5c6c87974f07c0588a310d3b318da18e258e3c168f174a7abab3"
     },
     {
+      "path": "tools/bambu-gateway.mjs",
+      "bytes": 12516,
+      "sha256": "babeed7659ecaa7fff60c040406b47168e0097f863aa4b292621a11c2bd93fdf"
+    },
+    {
+      "path": "tools/build-bambu-gateway-kit.mjs",
+      "bytes": 3733,
+      "sha256": "c0f2d490bd8b5665a54a89e6c731cdadb6511733bfdcfe2462fd392b3fa0acf0"
+    },
+    {
       "path": "tools/build-worker.mjs",
-      "bytes": 1295,
-      "sha256": "9d3679228268183338f15ee4cb3f21ad99c14d543cdf519c16b4516ec7056b0c"
+      "bytes": 1599,
+      "sha256": "a8d31d3affb2f3fec4fbe3a5f492e1a2074a3af729dc1863b45eafe94c81cfd4"
     },
     {
       "path": "tools/check.mjs",

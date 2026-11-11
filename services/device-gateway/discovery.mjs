@@ -3,6 +3,8 @@ import https from 'node:https';
 import { createHash } from 'node:crypto';
 import { normalizeTarget, GatewayError } from './config.mjs';
 import { discoverMdns } from './mdns.mjs';
+import { discoverBambuLan, bambuTargets, probeBambu, bambuDeviceKey } from './bambu-discovery.mjs';
+import { readBambuStatus } from './bambu-status.mjs';
 
 export function requestJson(url,{method='GET',headers={},body,timeoutMs=2000,maxBytes=65536}={}) {
   return new Promise((resolve,reject)=>{
@@ -46,16 +48,74 @@ export async function probeTarget(input,{allowLoopback=false,transport=requestJs
     return candidate;
   }
 }
-export async function discoverDevices(config,{mdns=discoverMdns,probe=probeTarget}={}) {
-  const found=config.mdns?await mdns():{targets:[],diagnostics:[]};
-  const all=[...config.targets,...found.targets],targets=[],seen=new Set(),diagnostics=[...found.diagnostics];
-  for(const raw of all){
-    try{const target=normalizeTarget(raw,{allowLoopback:config.allowLoopbackTargets});const key=target.protocol+'|'+target.endpoint;if(seen.has(key))continue;seen.add(key);targets.push(target);if(targets.length===32)break;}
-    catch{if(!diagnostics.includes('INVALID_DISCOVERY_ADDRESS'))diagnostics.push('INVALID_DISCOVERY_ADDRESS');}
-  }
+async function runProbes(targets,diagnostics) {
   const candidates=[];let cursor=0;
   await Promise.all(Array.from({length:Math.min(4,targets.length)},async()=>{
-    while(cursor<targets.length){const target=targets[cursor++];const candidate=await probe(target,{allowLoopback:config.allowLoopbackTargets});if(candidate)candidates.push(candidate);}
+    while(cursor<targets.length){const runProbe=targets[cursor++];const candidate=await runProbe();if(candidate)candidates.push(candidate);}
   }));
-  return {candidates:candidates.sort((a,b)=>a.deviceKey.localeCompare(b.deviceKey)),diagnostics};
+  return {candidates:candidates.sort((a,b)=>a.deviceKey.localeCompare(b.deviceKey)),diagnostics:[...diagnostics]};
+}
+// The CLI retains unchanged private configurations across polls. Keep bounded
+// cursor state per configuration; a new pairing starts its own rotation.
+const discoveryCursors = new WeakMap();
+function nextBatch(items,limit,cursors,key) {
+  if (items.length <= limit) { cursors[key]=0; return items; }
+  const offset=(cursors[key] ?? 0) % items.length;
+  const ordered=items.slice(offset).concat(items.slice(0,offset));
+  cursors[key]=(offset+limit)%items.length;
+  return ordered.slice(0,limit);
+}
+export async function monitorBambuDevices(config,deviceKeys,{bambuDiscover=discoverBambuLan,bambuReadStatus=readBambuStatus}={}) {
+  if (!Array.isArray(deviceKeys) || deviceKeys.length>32 || deviceKeys.some(k=>typeof k!=='string' || !/^[a-f0-9]{64}$/.test(k))) {
+    throw new GatewayError('INVALID_MONITOR_TARGET','拓竹状态刷新需要有效的已登记设备标识');
+  }
+  if (!deviceKeys.length) return {candidates:[],diagnostics:[]};
+  const registered = new Set(deviceKeys);
+  const found = config.bambuLan ? await bambuDiscover() : {advertisements:[],diagnostics:[]};
+  const fleet = bambuTargets(config.bambuPrinters ?? [],found.advertisements,found.conflicts);
+  const selected = fleet.targets.filter(item=>registered.has(bambuDeviceKey((item.printer??item.advertised).serial)));
+  return runProbes(selected.map(item=>()=>probeBambu(item,{allowLoopback:config.allowLoopbackTargets,readStatus:bambuReadStatus})),
+    new Set([...found.diagnostics,...fleet.diagnostics]));
+}
+export async function discoverDevices(config,{onlyBambu=false,mdns=discoverMdns,probe=probeTarget,bambuDiscover=discoverBambuLan,bambuReadStatus=readBambuStatus}={}) {
+  const [found,bambu] = await Promise.all([
+    !onlyBambu && config.mdns ? mdns() : {targets:[],diagnostics:[]},
+    config.bambuLan ? bambuDiscover() : {advertisements:[],diagnostics:[]}
+  ]);
+  const fleet=bambuTargets(config.bambuPrinters ?? [],bambu.advertisements,bambu.conflicts);
+  const diagnostics=new Set([...found.diagnostics,...bambu.diagnostics,...fleet.diagnostics]);
+  const active=[], passive=[], seen=new Set(), options={allowLoopback:config.allowLoopbackTargets};
+  function addHttp(raw) {
+    try {
+      const target=normalizeTarget(raw,options), key=target.protocol+'|'+target.endpoint;
+      if (!seen.has(key)) { seen.add(key); active.push({run:() => probe(target,options)}); }
+    } catch { diagnostics.add('INVALID_DISCOVERY_ADDRESS'); }
+  }
+  // A passive advertisement costs no network round trip. Only active HTTP
+  // and TLS probes share the 32-probe budget; the server accepts 100 rows.
+  if (!onlyBambu) config.targets.forEach(addHttp);
+  for (const item of fleet.targets) {
+    if (item.printer) active.push({run:()=>probeBambu(item,{...options,readStatus:bambuReadStatus}),advertised:item.advertised});
+    else passive.push({advertised:item.advertised});
+  }
+  found.targets.forEach(addHttp);
+  if (!discoveryCursors.has(config)) discoveryCursors.set(config,{});
+  const cursors=discoveryCursors.get(config), scope=onlyBambu?'bambu':'all';
+  const selected=nextBatch(active,32,cursors,scope+'Active');
+  if (selected.length<active.length) {
+    diagnostics.add('DISCOVERY_TARGET_LIMIT');
+    const attempted=new Set(selected);
+    for (const entry of active) {
+      if (!attempted.has(entry) && entry.advertised) passive.push({advertised:entry.advertised,deferred:true});
+    }
+  }
+  const result=await runProbes(selected.map(entry=>entry.run),diagnostics);
+  const remainder=nextBatch(passive,100-result.candidates.length,cursors,scope+'Passive');
+  if (remainder.length<passive.length) diagnostics.add('DISCOVERY_TARGET_LIMIT');
+  for (const {advertised,deferred} of remainder) {
+    const candidate=await probeBambu({advertised},{});
+    if (deferred) candidate.probeEvidence.deferred=true;
+    result.candidates.push(candidate);
+  }
+  return {candidates:result.candidates.sort((a,b)=>a.deviceKey.localeCompare(b.deviceKey)),diagnostics:[...diagnostics]};
 }

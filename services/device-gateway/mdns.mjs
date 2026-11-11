@@ -4,7 +4,12 @@ import { isPrivateIPv4 } from './config.mjs';
 
 export const SERVICES={'_moonraker._tcp.local':'moonraker','_octoprint._tcp.local':'octoprint'};
 const uint32=ip=>ip.split('.').reduce((n,v)=>((n<<8)|Number(v))>>>0,0);
-export function localIPv4Interfaces(interfaces=os.networkInterfaces()) {
+export function localIPv4Interfaces(interfaces) {
+  // Sandboxed services can deny enumeration while still permitting access to
+  // explicitly configured printers. Keep their read-only probes available.
+  if (interfaces === undefined) {
+    try { interfaces = os.networkInterfaces(); } catch { return []; }
+  }
   return Object.values(interfaces).flat().filter(x=>x&&x.family==='IPv4'&&!x.internal&&isPrivateIPv4(x.address)&&/^\d+\.\d+\.\d+\.\d+$/.test(x.netmask)).slice(0,8);
 }
 export function sameSubnet(address,interfaces) {

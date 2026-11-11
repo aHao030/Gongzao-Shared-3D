@@ -2,6 +2,7 @@ import { readinessResponse } from './readiness.mjs';
 import { D1Store } from './store-d1.mjs';
 import { handleApi, jsonResponse, appEntryAsset, staticAssetResponse } from './http.mjs';
 import { ASSETS } from '../../generated/assets.mjs';
+import { gatewayKitPath, gatewayKitResponse } from './gateway-kit-download.mjs';
 import { handleHostedAuth } from './auth-config.mjs';
 import { handleAdminHttp } from './admin-http.mjs';
 import { createAdminControl } from './admin-control.mjs';
@@ -28,5 +29,9 @@ export default {async fetch(request,env){
   if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
   const asset=ASSETS[appEntryAsset(url.pathname)];
   if(!asset)return new Response('Not found',{status:404});
+  if(url.pathname===gatewayKitPath){
+    const bytes=request.method==='HEAD'?null:Uint8Array.from(atob(asset.body),char=>char.charCodeAt(0));
+    return gatewayKitResponse(bytes,asset.size);
+  }
   return staticAssetResponse(request.method==='HEAD' ? null : asset.body, asset.type, url.pathname);
 }};

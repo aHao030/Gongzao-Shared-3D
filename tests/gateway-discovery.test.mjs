@@ -9,7 +9,7 @@ import { GatewayClient } from '../services/device-gateway/client.mjs';
 import { runCli } from '../services/device-gateway/cli.mjs';
 
 const token='test-only-token-012345678901234567890123456789';
-const baseConfig={platformUrl:'https://platform.example',token,mdns:false,targets:[]};
+const baseConfig={platformUrl:'https://platform.example',token,mdns:false,bambuLan:false,targets:[]};
 const target={protocol:'moonraker',endpoint:'http://192.168.1.20:7125',name:'Test printer'};
 const interfaces=[{family:'IPv4',address:'192.168.1.10',netmask:'255.255.255.0',internal:false}];
 const moonraker={result:{klippy_connected:true,klippy_state:'ready',components:['klippy_apis'],moonraker_version:'fixture'}};

@@ -3,8 +3,8 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
     "title": "共造 模型需求、商家方案与履约沙盒 API",
-    "version": "0.9.5",
-    "description": "主站客户、模型预算、商家咨询与沙盒订单 API。/trade 以登录账号区分独立买家和商家。原有 /inquiries、/orders 继续使用单一工作空间的交易演示。支付、派机及结算使用模拟状态。设备网关及生产中心见 MERCHANT_GUIDE.md 和 OPERATIONS_CONTRACT_V0.9.md。"
+    "version": "0.9.6",
+    "description": "主站客户、模型预算、商家咨询与沙盒订单 API。/trade 以登录账号区分独立买家和商家。原有 /inquiries、/orders 继续使用单一工作空间的交易演示。支付、派机及结算使用模拟状态。设备网关、拓竹发现与生产中心见 MERCHANT_GUIDE.md、BAMBU_FLEET_V0.9.6.md 和 OPERATIONS_CONTRACT_V0.9.md。"
   },
   "servers": [
     {
@@ -2566,7 +2566,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.9.5",
+            "const": "0.9.6",
             "type": "string"
           },
           "mode": {

@@ -2,6 +2,8 @@
   "platformUrl": "https://your-platform.example",
   "token": "REPLACE_WITH_THE_PRIVATE_PAIRING_TOKEN_FROM_MERCHANT_PORTAL",
   "mdns": true,
+  "bambuLan": true,
+  "bambuPrinters": [],
   "targets": [
     {
       "protocol": "moonraker",

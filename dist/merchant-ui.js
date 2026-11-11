@@ -4,18 +4,36 @@ import { get, prepareMutation } from './api-client.js';
 export function createMerchantUI({ operationsFactory, workflow, icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session, auth }) {
   const state = { profile:null, loaded:false, loading:false, busy:false, error:null, view:'overview', devices:[], gateways:[], counts:{total:0,real:0,online:0,offline:0,demo:0}, scan:null, selected:new Set(), lastRefreshed:null, pollTimer:null, freshnessTimer:null, clockOffset:0, retry:null, pricing:null, pricingLoading:false, pricingFarm:'f1', pricingDrafts:{}, pricingDraftRevisions:{} };
   let pairing = null;
+  let inventoryTimer = null;
   const operations=operationsFactory?.({icon,escape,render,modal,closeModal,toast,isActive:()=>isRoute()&&state.view==='operations'&&!!state.profile&&(!auth||auth.authenticated())});
   const esc=escape, I=icon;
   const $=s=>document.querySelector(s);
   const statusLabels={online:'已识别',offline:'待检查',authorization_required:'待授权',revoked:'已撤销'};
   const connectionReasons={PROTOCOL_OBSERVED:'只读协议最近有响应',GATEWAY_OFFLINE:'网关未在线，需重新查询',OBSERVATION_EXPIRED:'设备观察已过期，请重新检测',STATUS_REFRESH_REQUIRED:'状态缓存已过期，请查询最新状态',AUTHORIZATION_REQUIRED:'设备需要本地授权',DEVICE_UNREACHABLE:'最近检测未连接',IDENTITY_CONFLICT:'地址与设备标识冲突',SCAN_FAILED:'最近检测失败，状态待核实',DEMO:'演示数据'};
-  const verificationLabels={DEMO:'演示数据',PROTOCOL_PROBE_REPORTED:'网关已回报协议探针',LEGACY_PROTOCOL_REPORTED:'旧版协议回报，建议重新检测'};
-  const displayDevice=d=>d.source==='real'&&d.connectionState==='online'&&(!Number.isFinite(d.freshUntil)||Date.now()+state.clockOffset>=d.freshUntil)?{...d,connectionState:'offline',connectionReason:'STATUS_REFRESH_REQUIRED'}:d;
+  const verificationLabels={BAMBU_ADVERTISED:'局域网广播已识别',BAMBU_READONLY_REPORTED:'加密只读订阅已验证',BAMBU_UNVERIFIED:'尚未读取设备状态',DEMO:'演示数据',PROTOCOL_PROBE_REPORTED:'网关已回报协议探针',LEGACY_PROTOCOL_REPORTED:'旧版协议回报，建议重新检测'};
+  const displayDevice=d=>d.source==='real'&&(d.connectionState==='online'||(d.protocol==='bambu'&&d.connectionState==='authorization_required'))&&(!Number.isFinite(d.freshUntil)||Date.now()+state.clockOffset>=d.freshUntil)?{...d,connectionState:'offline',connectionReason:'STATUS_REFRESH_REQUIRED'}:d;
   const displayGateway=g=>g.status==='online'&&(!Number.isFinite(g.freshUntil)||Date.now()+state.clockOffset>=g.freshUntil)?{...g,status:'offline'}:g;
   const currentCounts=()=>{const real=state.devices.filter(d=>d.source==='real').map(displayDevice);return {...state.counts,online:real.filter(d=>d.connectionState==='online').length,offline:real.filter(d=>d.connectionState!=='online').length};};
+  // Inventory queries read the server's latest observation. They never send a scan or printer command.
+  function scheduleInventoryRead(){
+    clearTimeout(inventoryTimer);
+    if(!isRoute()||state.view!=='devices'||document.hidden||!state.profile||!state.devices.some(d=>d.protocol==='bambu'))return;
+    inventoryTimer=setTimeout(async()=>{
+      const previous=state.lastRefreshed,profile=state.profile;
+      try{
+        if(!document.hidden&&!state.busy&&!state.loading){
+          const inventory=await get('/merchant/devices');
+          if(profile===state.profile&&previous===state.lastRefreshed&&state.view==='devices'){
+            applyDevices(inventory);render();
+          }
+        }
+      }catch{/* The existing freshness deadline still expires when the server is unreachable. */}
+      finally{scheduleInventoryRead();}
+    },30000);
+  }
   function scheduleFreshness(){
     clearTimeout(state.freshnessTimer);if(!isRoute())return;
-    const time=Date.now()+state.clockOffset,expires=[...state.devices.filter(d=>d.source==='real'&&d.connectionState==='online'&&d.freshUntil>time),...state.gateways.filter(g=>g.status==='online'&&g.freshUntil>time)].map(d=>d.freshUntil);
+    const time=Date.now()+state.clockOffset,expires=[...state.devices.filter(d=>d.source==='real'&&(d.connectionState==='online'||(d.protocol==='bambu'&&d.connectionState==='authorization_required'))&&d.freshUntil>time),...state.gateways.filter(g=>g.status==='online'&&g.freshUntil>time)].map(d=>d.freshUntil);
     if(state.scan?.expiresAt>time)expires.push(state.scan.expiresAt);
     if(expires.length)state.freshnessTimer=setTimeout(()=>{if(isRoute())render();scheduleFreshness();},Math.min(2147483647,Math.max(1,Math.min(...expires)-time+10)));
   }
@@ -23,11 +41,28 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   const isRoute=()=>/^\/merchant(?:\/|$)/.test(location.pathname);
   const heading=(eyebrow,title,description,actions='')=>'<div class="page-intro merchant-intro"><div><div class="eyebrow">'+eyebrow+'</div><h1>'+title+'</h1><p>'+description+'</p></div><div class="intro-actions">'+actions+'</div></div>';
   const button=(action,label,primary=false,extra='')=>'<button class="btn '+(primary?'primary':'')+'" data-merchant-action="'+action+'" '+extra+(state.busy?' disabled':'')+'>'+label+'</button>';
-  const canImport=c=>state.scan?.status==='complete'&&state.scan.importable!==false&&new Date(state.scan.expiresAt).getTime()>Date.now()+state.clockOffset&&!c.registered&&c.connectionState==='online'&&['moonraker','octoprint'].includes(c.protocol);
+  function canImport(c) {
+    if(state.scan?.status!=='complete'||state.scan.importable===false||new Date(state.scan.expiresAt).getTime()<=Date.now()+state.clockOffset||c.registered||c.registrationConflict)return false;
+    if(typeof c.canRegister==='boolean')return c.canRegister;
+    return ['moonraker','octoprint'].includes(c.protocol)&&c.connectionState==='online';
+  }
+  const printStates={IDLE:'空闲',PREPARE:'准备中',RUNNING:'打印中',PAUSE:'已暂停',FINISH:'打印已完成',FAILED:'打印失败'};
+  function bambuStatus(d) {
+    if(d.connectionReason==='IDENTITY_CONFLICT')return '标识冲突';
+    if(d.connectionState==='authorization_required')return '待本地授权';
+    if(d.connectionState!=='online')return '离线或观察已过期';
+    const e=d.probeEvidence;
+    if(e?.method!=='MQTT_TLS')return '状态待核实';
+    const status=printStates[e.printState]||'已连接 · 状态未知';
+    return ['RUNNING','PAUSE'].includes(e.printState)&&Number.isInteger(e.progressPercent)&&e.progressPercent>=0&&e.progressPercent<=100?status+' · '+e.progressPercent+'%':status;
+  }
+  const protocolName=p=>p==='bambu'?'拓竹 LAN':p;
+  const bambuLocalHelp='在打印机所在局域网的电脑打开 BAMBU-GATEWAY-WINDOWS.cmd，选择只读授权。macOS / Linux 运行 node tools/bambu-gateway.mjs。';
+
   const onlineGateways=()=>state.gateways.map(displayGateway).filter(g=>g.status==='online'&&!g.revokedAt);
   function notice(){return state.error?'<div class="request-notice error" role="alert">'+I('info')+'<span>'+esc(state.error.message)+'</span>'+button('retry','重试')+'</div>':'';}
-  function go(view){state.view=['overview','devices','capabilities','inquiries','pricing','orders','operations'].includes(view)?view:'overview';const hash=state.view==='overview'?'':'#'+state.view;history.replaceState(null,'','/merchant'+hash);render();window.scrollTo({top:0,behavior:'instant'});if(state.view==='pricing')loadPricing();if(state.view==='operations')operations?.load();if(['capabilities','inquiries'].includes(state.view))workflow?.load(true);}
-  function applyDevices(result){state.devices=result.devices||[];state.counts=result.counts||state.counts;if(result.gateways)state.gateways=result.gateways;state.lastRefreshed=Date.now();state.clockOffset=Number.isFinite(result.serverNow)?result.serverNow-Date.now():0;scheduleFreshness();}
+  function go(view){state.view=['overview','devices','capabilities','inquiries','pricing','orders','operations'].includes(view)?view:'overview';const hash=state.view==='overview'?'':'#'+state.view;history.replaceState(null,'','/merchant'+hash);render();scheduleInventoryRead();window.scrollTo({top:0,behavior:'instant'});if(state.view==='pricing')loadPricing();if(state.view==='operations')operations?.load();if(['capabilities','inquiries'].includes(state.view))workflow?.load(true);}
+  function applyDevices(result){state.devices=result.devices||[];state.counts=result.counts||state.counts;if(result.gateways)state.gateways=result.gateways;state.lastRefreshed=Date.now();state.clockOffset=Number.isFinite(result.serverNow)?result.serverNow-Date.now():0;scheduleFreshness();scheduleInventoryRead();}
   async function load(show=true){
     if(state.loading)return;state.loading=true;if(show)render();
     try{
@@ -56,7 +91,7 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   function summary(){
     const pending=state.scan?.scope==='real'&&state.scan.status==='complete'?state.scan.candidates.filter(canImport).length:0;
     const counts=currentCounts();
-    return '<div class="summary-grid merchant-summary">'+[['已添加设备',counts.real,'真实登记'],['最近已识别',counts.online,'协议可读，不代表可开打'],['待检查设备',counts.offline,'离线、过期或待授权'],['待添加设备',pending,'最近一次真实检测']].map(([label,count,note])=>'<div class="summary-card"><span>'+label+'</span><strong>'+Number(count||0)+'</strong><p>'+note+'</p></div>').join('')+'</div>';
+    return '<div class="summary-grid merchant-summary">'+[['已添加设备',counts.real,'真实登记'],['状态可读',counts.online,'最近一次网关检测'],['待检查设备',counts.offline,'离线、过期或待授权'],['待添加设备',pending,'最近一次真实检测']].map(([label,count,note])=>'<div class="summary-card"><span>'+label+'</span><strong>'+Number(count||0)+'</strong><p>'+note+'</p></div>').join('')+'</div>';
   }
   function loginPage(){
     const account=auth?.renderPanel({merchant:true})||'<p>正在连接账号服务…</p>';
@@ -69,36 +104,92 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   function overview(){
     const connected=onlineGateways();
     return heading('BUSINESS WORKSPACE','工作台','欢迎回来，'+esc(state.profile.name)+'。','<a class="btn" href="'+esc(tradeInboxHref('merchant',undefined,hasPlatformRoutes() && connection()!=='offline'))+'">买家消息</a>'+button('operations','生产中心')+button('inquiries','查看需求 '+I('arrow'),true))+summary()+
-      '<div class="merchant-overview-grid"><section class="card overview-feature"><div class="overview-feature-icon">'+I('printer')+'</div><h2>接入设备</h2><p>连接本地网关，检测并批量添加已授权设备。</p><div class="overview-feature-actions">'+button('discover','检测并添加 '+I('plus'),true)+button('refresh','查询已接入设备')+'</div></section><section class="card gateway-overview"><div class="section-heading"><h2>本地网关</h2><span class="badge">'+connected.length+' 个在线</span></div><div class="gateway-graphic">'+I('network')+'</div><h3>'+(connected.length?'网关已连接':'连接第一台网关')+'</h3><p>在设备所在电脑运行网关，读取设备状态。</p>'+button('pair','连接网关 '+I('arrow'))+'</section></div>'+
-      '<div class="merchant-bottom-note">'+I('shield')+'<span>已开放只读协议识别；具体机型、打印状态与生产能力仍需验证。</span><button class="text-link" data-merchant-action="demo">先体验添加流程 '+I('arrow')+'</button></div>';
+      '<div class="merchant-overview-grid"><section class="card overview-feature"><div class="overview-feature-icon">'+I('printer')+'</div><h2>接入设备</h2><p>在农场电脑连接网关后，即可发现并登记局域网里的设备。</p><div class="overview-feature-actions">'+button('bambu-connect','一键接入拓竹 '+I('plus'),true)+button('discover','检测其他设备')+'</div></section><section class="card gateway-overview"><div class="section-heading"><h2>本地网关</h2><span class="badge">'+connected.length+' 个在线</span></div><div class="gateway-graphic">'+I('network')+'</div><h3>'+(connected.length?'网关已连接':'连接第一台网关')+'</h3><p>在设备所在电脑运行网关，读取设备状态。</p>'+button('pair','连接网关 '+I('arrow'))+'</section></div>'+
+      '<div class="merchant-bottom-note">'+I('shield')+'<span>拓竹设备可先登记，再在本地授权读取打印状态。</span><button class="text-link" data-merchant-action="demo">先体验添加流程 '+I('arrow')+'</button></div>';
   }
   function registry(){
     const real=state.devices.filter(d=>d.source!=='demo'),demo=state.devices.filter(d=>d.source==='demo');
-    return heading('YOUR MACHINES','设备','查看设备状态，检测并添加新设备。',button('refresh',I('rotate')+'刷新状态')+button('discover',I('plus')+'检测并添加设备',true))+summary()+
+    return heading('YOUR MACHINES','设备','查看设备状态，检测并添加新设备。',button('refresh',I('rotate')+'查询已接入设备')+button('discover','选择设备添加')+button('bambu-connect',I('plus')+'一键接入拓竹',true))+summary()+
     '<section class="card equipment-section"><div class="card-head"><h2>我的设备 <span class="small muted">'+real.length+'</span></h2><span class="small muted">'+(state.loading?'正在查询…':'最近查询 '+date(state.lastRefreshed))+'</span></div>'+
-    (real.length?'<div class="equipment-list">'+real.map(deviceRow).join('')+'</div>':'<div class="empty-state device-empty"><div class="empty-printer">'+I('printer')+'</div><h3>还没有设备</h3><p>连接本地网关后，点击“检测并添加设备”。</p></div>')+'</section>'+
+    (real.length?'<div class="equipment-list">'+real.map(deviceRow).join('')+'</div>':'<div class="empty-state device-empty"><div class="empty-printer">'+I('printer')+'</div><h3>还没有设备</h3><p>首次使用请先连接农场电脑上的网关。已配对后，可一键登记该局域网发现的拓竹设备。</p></div>')+'</section>'+
     (state.scan?scanPanel():'')+
     '<section class="gateway-section"><div class="section-heading"><h2>网关连接</h2>'+button('pair','连接网关 '+I('plus'))+'</div>'+(state.gateways.length?'<div class="gateway-list">'+state.gateways.map(displayGateway).map(g=>'<div class="gateway-row"><span class="gateway-icon">'+I('network')+'</span><div><strong>'+esc(g.name)+'</strong><p>'+esc(g.id)+' · '+date(g.lastSeenAt)+'</p></div><span class="badge">'+(g.status==='online'?'在线':g.status==='revoked'?'已撤销':'离线')+'</span>'+(g.status==='revoked'?'':button('revoke','撤销连接',false,'data-gateway-id="'+esc(g.id)+'"'))+'</div>').join('')+'</div>':'<div class="gateway-empty"><span>还没有连接本地网关。</span><button class="text-link" data-merchant-action="pair">查看连接方式 '+I('arrow')+'</button></div>')+'</section>'+
     (demo.length?'<details class="demo-devices"><summary>演示设备 · '+demo.length+' 台<span>不计入真实设备</span></summary><div class="equipment-list">'+demo.map(deviceRow).join('')+'</div></details>':'')+
-    '<div class="merchant-bottom-note"><span>支持 Moonraker / OctoPrint 发现与读取。其他品牌按实际开放接口接入。</span><button class="text-link" data-merchant-action="demo">体验演示检测 '+I('arrow')+'</button></div>';
+    '<div class="merchant-bottom-note"><span>支持拓竹局域网发现、Moonraker 和 OctoPrint。接入仅登记和读取状态。</span><button class="text-link" data-merchant-action="demo">体验演示检测 '+I('arrow')+'</button></div>';
   }
-  function deviceRow(record){const d=displayDevice(record);return '<article class="equipment-row"><span class="equipment-icon">'+I('printer')+'</span><div class="equipment-name"><strong>'+esc(d.name)+'</strong><span>'+esc(d.protocol)+' · 型号待确认</span></div><div class="equipment-address"><span>'+esc(d.endpoint||'演示地址')+'</span><small>'+esc(connectionReasons[d.connectionReason]||'最近观察 '+date(d.lastSeenAt))+'</small></div><span class="status-pill '+(d.connectionState==='online'?'status-online':'')+'"><i></i>'+esc(statusLabels[d.connectionState]||'待检查')+'</span><button class="text-link equipment-capability" data-merchant-action="device-details" data-device-id="'+esc(d.id)+'">识别详情 '+I('arrow')+'</button></article>';}
+  function deviceRow(record) {
+    const d=displayDevice(record),bambu=d.protocol==='bambu';
+    const label=bambu?bambuStatus(d):(statusLabels[d.connectionState]||'待检查');
+    const model=bambu?(d.model||'型号待确认'):'型号待确认';
+    const detail=bambu&&d.connectionState==='online'?'状态读取于 '+date(d.lastSeenAt):connectionReasons[d.connectionReason]||'最近观察 '+date(d.lastSeenAt);
+    return '<article class="equipment-row"><span class="equipment-icon">'+I('printer')+'</span><div class="equipment-name"><strong>'+esc(d.name)+'</strong><span>'+esc(protocolName(d.protocol))+' · '+esc(model)+'</span></div><div class="equipment-address"><span>'+esc(d.endpoint||'演示地址')+'</span><small>'+esc(detail)+'</small></div><span class="status-pill '+(d.connectionState==='online'?'status-online':'')+'"><i></i>'+esc(label)+'</span><button class="text-link equipment-capability" data-merchant-action="device-details" data-device-id="'+esc(d.id)+'">识别详情 '+I('arrow')+'</button></article>';
+  }
   function deviceDetails(id){
-    const record=state.devices.find(d=>d.id===id);if(!record)return;const d=displayDevice(record),e=d.probeEvidence;
-    const fields=[['协议',d.protocol],['服务状态',connectionReasons[d.connectionReason]||'待重新检测'],['识别层级',verificationLabels[d.verification?.level]||'旧版登记，建议重新检测'],['最近观察',date(d.lastSeenAt)],['只读探针',e?e.method+' '+e.endpoint:d.source==='demo'?'演示数据，无真实探针':'旧版回报未提供'],['服务版本',e?.serviceVersion||'未提供'],['控制器连接',e?.controllerConnected===true?'已连接（不代表当前可打印）':e?.controllerConnected===false?'未连接':'本次协议接口未验证'],['控制器状态',e?.controllerState||'未读取'],['具体机型','尚未确认'],['现场与工艺认证','尚未验收']];
-    modal('设备识别详情','<p><strong>'+esc(d.name)+'</strong></p><div class="setup-steps">'+fields.map(([label,value])=>'<div><span><strong>'+esc(label)+'</strong><small>'+esc(value)+'</small></span></div>').join('')+'</div><p class="inline-note">当前只读取协议信息。文件上传、启动打印与取消任务均未开放。'+(d.source==='demo'?'这是演示设备。':'网关心跳不代表打印机状态已刷新；观察超过 5 分钟需要重新检测。')+'</p>','<button class="btn" data-action="close">关闭</button>'+button('refresh','查询最新状态',true));
+    const record=state.devices.find(d=>d.id===id);if(!record)return;
+    const d=displayDevice(record),e=d.probeEvidence,bambu=d.protocol==='bambu';
+    const fields=[['协议',protocolName(d.protocol)],['识别依据',verificationLabels[d.verification?.level]||'旧版登记，建议重新检测'],['最近观察',date(d.lastSeenAt)]];
+    if(bambu)fields.push(['机型',d.model||'未识别，请核对打印机屏幕'],['打印状态',bambuStatus(d)],['现场与工艺验收','尚未验收']);
+    else fields.push(['服务状态',connectionReasons[d.connectionReason]||'待重新检测'],['只读探针',e?e.method+' '+e.endpoint:d.source==='demo'?'演示数据，无真实探针':'旧版回报未提供'],['服务版本',e?.serviceVersion||'未提供'],['控制器连接',e?.controllerConnected===true?'已连接（不代表当前可打印）':e?.controllerConnected===false?'未连接':'本次协议接口未验证'],['控制器状态',e?.controllerState||'未读取'],['具体机型','尚未确认'],['现场与工艺认证','尚未验收']);
+    const hint=bambu?(d.connectionState==='authorization_required'?bambuLocalHelp:'网关会定期更新已登记拓竹设备的状态，也可以立即重新检测。'):'观察超过有效期后需要重新检测。';
+    const gateway=onlineGateways().find(g=>g.id===d.gatewayId);
+    modal('设备识别详情','<p><strong>'+esc(d.name)+'</strong></p><div class="setup-steps">'+fields.map(([label,value])=>'<div><span><strong>'+esc(label)+'</strong><small>'+esc(value)+'</small></span></div>').join('')+'</div><p class="inline-note">'+(d.source==='demo'?'这是演示设备。':esc(hint))+' 文件上传与自动开打尚未开放。</p>','<button class="btn" data-action="close">关闭</button>'+(gateway?button('rescan-gateway','重新检测本地状态',true,'data-gateway-id="'+esc(gateway.id)+'"'):''));
+  }
+  function candidateBadge(c) {
+    if(c.registrationConflict==='OTHER_GATEWAY')return '已在另一网关登记';
+    if(c.registrationConflict==='IDENTITY_CHANGED')return '设备标识冲突';
+    if(c.registered)return '已添加';
+    if(c.protocol==='bambu')return (canImport(c)?'可登记 · ':'')+bambuStatus(c);
+    if(c.connectionState==='authorization_required')return '需要设备授权';
+    if(canImport(c))return '可添加';
+    return c.connectionState==='offline'?'未连接':'暂不可添加';
+  }
+  function candidateRow(c,selectable) {
+    const eligible=selectable&&canImport(c);
+    const checkbox=selectable?'<input type="checkbox" data-candidate-id="'+esc(c.id)+'" '+(eligible?'':'disabled')+' '+(eligible&&state.selected.has(c.id)?'checked':'')+'/>':'';
+    const tag=selectable?'label':'div';
+    return '<'+tag+' class="candidate-row">'+checkbox+'<span class="equipment-icon">'+I('printer')+'</span><span class="candidate-name"><strong>'+esc(c.name)+'</strong><small>'+esc(protocolName(c.protocol))+' · '+esc(c.endpoint||'演示设备')+'</small></span><span class="badge">'+esc(candidateBadge(c))+'</span></'+tag+'>';
+  }
+  function partialScanNotice(codes) {
+    if(!Array.isArray(codes)||!codes.length)return '';
+    const messages=[];
+    if(codes.some(x=>['DISCOVERY_TARGET_LIMIT','BAMBU_DISCOVERY_LIMIT','BAMBU_PACKET_LIMIT'].includes(x)))messages.push('本次达到扫描上限，可按网关划分设备。');
+    if(codes.some(x=>['BAMBU_LISTEN_UNAVAILABLE','BAMBU_MULTICAST_UNAVAILABLE','NO_LOCAL_IPV4_INTERFACE','MDNS_SOCKET_UNAVAILABLE','MDNS_SEND_FAILED'].includes(x)))messages.push('请核对网关网络、局域网广播及本地 UDP 1990/2021 端口。');
+    if(codes.includes('BAMBU_LISTEN_DISABLED'))messages.push('拓竹广播监听已关闭，可在农场电脑的向导中调整配置。');
+    if(codes.some(x=>['BAMBU_DISCOVERY_IDENTITY_CONFLICT','BAMBU_CONFIG_ADDRESS_CHANGED','INVALID_DISCOVERY_ADDRESS'].includes(x)))messages.push('请在农场电脑上核对设备地址和身份后重新检测。');
+    return '<p class="inline-note" role="status">本次检测可能不完整。'+(messages.join('')||'请检查网关并重试。')+'</p>';
   }
   function scanPanel(){
-    const s=state.scan,scope=s.scope==='demo'?'演示检测':'设备检测',candidates=s.candidates||[],available=candidates.filter(canImport),selected=available.filter(c=>state.selected.has(c.id));
+    const s=state.scan,auto=s.autoRegister==='bambu',result=s.registrationResult;
+    const candidates=(s.candidates||[]).filter(c=>!auto||c.protocol==='bambu');
+    const available=candidates.filter(canImport),selected=available.filter(c=>state.selected.has(c.id));
     const effectiveStatus=s.status==='complete'&&new Date(s.expiresAt).getTime()<=Date.now()+state.clockOffset?'expired':s.status==='complete'&&s.importable===false?'unavailable':s.status;
-    const stateText={pending:'正在等待网关检测',complete:'检测完成',failed:'检测未完成',expired:'检测已过期',unavailable:'暂时无法添加'}[effectiveStatus]||effectiveStatus;
-    return '<section class="card scan-panel" aria-live="polite"><div class="card-head"><h2>'+scope+' <span class="badge">'+stateText+'</span></h2>'+button('refresh-scan',I('rotate')+'刷新结果')+'</div>'+
-    (s.scope==='demo'?'<div class="scan-demo-note">这是演示数据，不来自你的网络，也不会计入真实设备。</div>':'')+
-    (s.status==='pending'?'<div class="scan-pending">'+I('search')+'<h3>正在寻找你的设备</h3><p>网关会读取局域网广播和你配置的设备地址。<br/>通常需要数秒；你可以继续浏览，结果会自动更新。</p></div>':
-      ['failed','expired','unavailable'].includes(effectiveStatus)?'<div class="empty-state"><h3>'+stateText+'</h3><p>'+esc(effectiveStatus==='expired'?'本次检测结果已过期，请重新检测后添加设备。':effectiveStatus==='unavailable'?'网关已离线或结果不可用，请恢复连接后重新检测。':s.error?.message||s.error||'请确认网关仍在运行，然后重新检测。')+'</p>'+button(s.scope==='demo'?'demo':'discover','重新检测')+'</div>':
-      candidates.length?'<div class="scan-select-bar"><label class="check-line"><input type="checkbox" data-merchant-select-all '+(selected.length===available.length&&available.length?'checked':'')+' '+(!available.length?'disabled':'')+'/>选择可添加设备</label><span>'+candidates.length+' 台已发现 · '+available.length+' 台可添加</span></div><div class="candidate-list">'+candidates.map(c=>{
-        const eligible=canImport(c);return '<label class="candidate-row"><input type="checkbox" data-candidate-id="'+esc(c.id)+'" '+(eligible?'':'disabled')+' '+(state.selected.has(c.id)&&eligible?'checked':'')+'/><span class="equipment-icon">'+I('printer')+'</span><span class="candidate-name"><strong>'+esc(c.name)+'</strong><small>'+esc(c.protocol)+' · '+esc(c.endpoint||'演示设备')+'</small></span><span class="badge">'+(c.registered?(c.registrationConflict==='OTHER_GATEWAY'?'已在另一网关登记':c.registrationConflict==='IDENTITY_CHANGED'?'设备标识冲突':'已添加'):!['moonraker','octoprint'].includes(c.protocol)?'暂不支持':c.connectionState==='authorization_required'?'需要设备授权':c.connectionState==='online'?'可添加':'未连接')+'</span></label>';}).join('')+'</div><div class="scan-footer"><span>添加设备不会启动打印。</span>'+button('import','添加所选设备'+(selected.length?' · '+selected.length:''),true,selected.length?'':'disabled')+'</div>':
-      '<div class="empty-state"><h3>没有发现可用设备</h3><p>请确认设备与网关位于同一局域网。<br/>不支持自动发现的设备，可在网关配置中填写局域网地址。</p>'+button('discover','再次检测')+'</div>')+'</section>';
+    const stateText={pending:'正在等待网关检测',complete:'检测完成',failed:'检测未完成',expired:'检测已过期',unavailable:'暂时无法添加'}[effectiveStatus]||'请重新检测';
+    const title=s.scope==='demo'?'演示检测':auto?'拓竹接入':'设备检测';
+    const retry=s.scope==='demo'?'demo':auto?'bambu-connect':'discover';
+    let content='';
+    if(auto&&result)content+='<p class="scan-demo-note" role="status">新增 '+Number(result.added)+' 台 · 此前已登记 '+Number(result.existing)+' 台 · 未添加 '+Number(result.blocked)+' 台。'+(result.blocked?'请核对候选设备的状态、网关和登记容量。':'')+'</p>';
+    content+=partialScanNotice(s.partialDiagnostics);
+    if(s.scope==='demo')content+='<div class="scan-demo-note">这是演示数据，不来自你的网络，也不会计入真实设备。</div>';
+    if(effectiveStatus==='pending'){
+      content+='<div class="scan-pending">'+I('search')+'<h3>正在寻找你的设备</h3><p>'+(auto?'网关将在检测完成后批量登记本次发现的拓竹设备。':'网关会读取局域网广播和已配置的设备地址。')+'<br/>结果会自动更新。</p></div>';
+    }else if(effectiveStatus!=='complete'){
+      const reason=effectiveStatus==='expired'?'请重新检测以获取当前清单。':effectiveStatus==='unavailable'?'请确认网关仍在线，并重新检测。':s.error?.message||'请检查网关和本地网络后重试。';
+      content+='<div class="empty-state"><h3>'+stateText+'</h3><p>'+esc(reason)+'</p>'+button(retry,'重新检测')+'</div>';
+    }else if(!candidates.length){
+      const hint=auto?'请确认网关与打印机位于同一局域网，并允许本地 UDP 1990/2021。若网络不转发广播，可在农场电脑使用拓竹网关向导指定设备地址。':'请确认设备与网关位于同一局域网。也可以在网关配置中指定设备地址。';
+      content+='<div class="empty-state"><h3>'+(auto?'没有发现拓竹设备':'没有发现可用设备')+'</h3><p>'+hint+'</p>'+button(retry,'再次检测')+'</div>';
+    }else{
+      if(!auto)content+='<div class="scan-select-bar"><label class="check-line"><input type="checkbox" data-merchant-select-all '+(selected.length===available.length&&available.length?'checked':'')+' '+(!available.length?'disabled':'')+'/>选择可添加设备</label><span>'+candidates.length+' 台已发现 · '+available.length+' 台可添加</span></div>';
+      const rows='<div class="candidate-list">'+candidates.map(c=>candidateRow(c,!auto)).join('')+'</div>';
+      if(auto){
+        const previous=$('.bambu-scan-list');
+        const opened=previous?.open&&previous.dataset.scanId===s.id;
+        content+='<details class="bambu-scan-list" data-scan-id="'+esc(s.id)+'"'+(opened?' open':'')+'><summary>查看本次发现的 '+candidates.length+' 台设备</summary>'+rows+'</details>';
+      }else content+=rows;
+      if(!auto)content+='<div class="scan-footer"><span>添加设备不会启动打印。</span>'+button('import','添加所选设备'+(selected.length?' · '+selected.length:''),true,selected.length?'':'disabled')+'</div>';
+      if(auto&&candidates.some(c=>c.connectionState==='authorization_required'))content+='<p class="inline-note">'+esc(bambuLocalHelp)+' 授权后重新检测即可读取打印状态。</p>';
+    }
+    return '<section class="card scan-panel" aria-live="polite"><div class="card-head"><h2>'+title+' <span class="badge">'+stateText+'</span></h2>'+button('refresh-scan',I('rotate')+'刷新结果')+'</div>'+content+'</section>';
   }
   const pricingFields=[
     ['targetMarginBps','目标毛利率','%',100,0,80,.01],
@@ -184,26 +275,47 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
     const item=([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'"'+(state.view===id?' aria-current="page"':'')+'>'+label+'</button>';
     return '<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['inquiries','模型需求'],['orders','订单'],['devices','设备'],['operations','生产中心']].map(item).join('')+'<details class="nav-more'+(['capabilities','pricing'].includes(state.view)?' active':'')+'"><summary aria-label="商家设置">设置</summary><div class="nav-more-panel">'+[['capabilities','制造配置'],['pricing','计价']].map(item).join('')+'<button data-auth-action="logout">退出登录</button></div></details></nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';
   }
-  function discover(){
+  function gatewayDownload() {
+    if(!hasPlatformRoutes(document)||connection()!=='online')return '<p class="inline-note">请从已连接平台的商家网页下载网关程序和配对配置。</p>';
+    return '<p><a class="btn" href="/downloads/gongzao-bambu-gateway.zip" download>下载 Windows 网关 '+I('down')+'</a></p><p class="inline-note">农场电脑需安装 Node.js 24 或更高版本。解压网关程序包后，双击 BAMBU-GATEWAY-WINDOWS.cmd。</p>';
+  }
+  function discover(autoRegister=false){
     const gateways=onlineGateways();
-    if(!gateways.length){modal('连接后，一键发现','<div class="connect-explainer">'+I('network')+'<h3>需要一个在线的本地网关</h3><p>网页无法直接查找你局域网里的打印机。<br/>在连接设备的电脑上运行共造网关，即可完成检测。</p></div><div class="setup-steps"><div><b>1</b><span>创建并下载网关配置</span></div><div><b>2</b><span>在商家电脑上运行网关</span></div><div><b>3</b><span>回到这里检测并添加设备</span></div></div>','<button class="btn" data-action="close">稍后</button>'+button('pair','连接本地网关',true));return;}
-    modal('检测并添加设备','<p>检测只读取所选网关可发现、且允许访问的设备，不会启动生产。</p><label class="field-label" for="discovery-gateway">选择网关</label><select id="discovery-gateway" class="select">'+gateways.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.name)+'</option>').join('')+'</select><div id="merchant-modal-error" class="error-text"></div>','<button class="btn" data-action="close">取消</button>'+button('start-real-scan','开始检测',true));
+    if(!gateways.length&&state.gateways.some(g=>displayGateway(g).status==='offline')){
+      modal('恢复本地网关连接','<p>已配对的网关当前离线。请在原农场电脑启动网关，随后重新查询。</p><p class="inline-note">Windows 可双击 BAMBU-GATEWAY-WINDOWS.cmd 并选择启动。macOS / Linux 运行 node tools/bambu-gateway.mjs。</p>','<button class="btn" data-action="close">关闭</button>'+button('refresh','查询连接状态',true));return;
+    }
+    if(!gateways.length){
+      modal('连接本地网关','<div class="connect-explainer">'+I('network')+'<h3>需要一个在线的本地网关</h3><p>网关运行在打印机所在局域网的电脑上。</p></div>'+gatewayDownload()+'<div class="setup-steps"><div><b>1</b><span>点击“连接本地网关”生成并下载这家店的配对配置。</span></div><div><b>2</b><span>在农场电脑的网关向导导入配置并启动。</span></div><div><b>3</b><span>回到设备页，点击“一键接入拓竹”。</span></div></div>','<button class="btn" data-action="close">稍后</button>'+button('pair','连接本地网关',true));return;
+    }
+    if(gateways.length===1)return scan('real',gateways[0].id,autoRegister);
+    modal(autoRegister?'一键接入拓竹':'检测并添加设备','<p>'+ (autoRegister?'选择农场网关，自动登记本次检测到的拓竹设备。':'选择要检测的农场网关。')+'</p><label class="field-label" for="discovery-gateway">选择网关</label><select id="discovery-gateway" class="select">'+gateways.map(g=>'<option value="'+esc(g.id)+'">'+esc(g.name)+'</option>').join('')+'</select><div id="merchant-modal-error" class="error-text"></div>','<button class="btn" data-action="close">取消</button>'+button(autoRegister?'start-bambu-scan':'start-real-scan',autoRegister?'检测并登记拓竹':'开始检测',true));
   }
   function demoPrompt(){modal('体验设备添加流程','<p>使用 3 台明确标记的演示设备，体验检测、选择与添加。演示数据与真实设备分开，不代表在你的网络中发现了设备。</p>','<button class="btn" data-action="close">取消</button>'+button('start-demo-scan','使用演示数据体验',true));}
   function pairPrompt(){pairing=null;modal('连接本地网关','<p>在连接打印机的电脑上运行网关。平台只读取获授权设备，不会自动开启打印。</p><label class="field-label" for="gateway-name">网关名称</label><input id="gateway-name" class="input" maxlength="60" placeholder="例如：工作室电脑" value="工作室网关"/><div id="merchant-modal-error" class="error-text"></div>','<button class="btn" data-action="close">取消</button>'+button('create-pairing','生成网关配置',true));}
   function pairedDialog(result){
     if(!result.token){pairing=null;modal('连接已创建','<p>为了保护授权信息，网关密钥只显示一次。本次为重复请求，没有再次返回密钥；如未保存配置，请撤销该连接后重新创建。</p>','<button class="btn" data-action="close">知道了</button>');return;}
-    pairing={platformUrl:result.platformOrigin||location.origin,token:result.token,mdns:true,targets:[]};
-    modal('网关已准备好','<p>在你的商家电脑上下载配置，并使用项目中的网关程序启动。无需向公网开放打印机端口。</p>'+(session()?.persistence==='d1'?'<div class="pairing-hosted-note">此私有预览还需要配置站点服务访问权限。请按源码中的网关接入说明补充站点访问配置；本地版本可直接配对。</div>':'')+'<div class="setup-steps"><div><b>1</b><span><strong>下载连接配置</strong><small>配置包含设备读取权限，请仅保存于你的电脑。</small></span></div><div><b>2</b><span><strong>在项目根目录运行</strong><code>node services/device-gateway/cli.mjs --config gateway.private.json</code></span></div><div><b>3</b><span><strong>回到平台查询连接</strong><small>自动发现 Moonraker / OctoPrint；其他设备可按说明填写本地地址。</small></span></div></div><p class="inline-note">授权文件仅在本次窗口中可下载。文件移动后，请在命令中使用实际路径。</p>','<button class="btn" data-merchant-action="finish-pairing">完成并查询</button>'+button('download-config','下载网关配置 '+I('down'),true),true);
+    pairing={platformUrl:result.platformOrigin||location.origin,token:result.token,mdns:true,bambuLan:true,bambuPrinters:[],targets:[]};
+    modal('网关已准备好','<p>在农场电脑保存配对配置，用网关向导导入后启动。</p>'+gatewayDownload()+(session()?.persistence==='d1'?'<div class="pairing-hosted-note">此私有预览还需要配置站点服务访问权限。请按源码中的网关接入说明补充站点访问配置；本地版本可直接配对。</div>':'')+'<div class="setup-steps"><div><b>1</b><span><strong>下载配对配置</strong><small>配置包含设备读取权限，请仅保存于你的电脑。</small></span></div><div><b>2</b><span><strong>在农场电脑启动网关</strong><small>Windows 双击 BAMBU-GATEWAY-WINDOWS.cmd，导入下载的配置并选择启动网关。macOS / Linux 运行 node tools/bambu-gateway.mjs。</small></span></div><div><b>3</b><span><strong>回到平台查询连接</strong><small>点击“一键接入拓竹”批量登记。要读取状态，请先在本地向导完成只读授权，再重新检测。</small></span></div></div><p class="inline-note">授权文件仅在本次窗口中可下载。文件移动后，请在命令中使用实际路径。</p>','<button class="btn" data-merchant-action="finish-pairing">完成并查询</button>'+button('download-config','下载配对配置 '+I('down'),true),true);
   }
-  async function scan(scope,gatewayId){
-    await mutation('scan',{scope,...(gatewayId?{gatewayId}:{})},async result=>{state.scan=result.scan;state.selected=new Set((result.scan.candidates||[]).filter(canImport).map(c=>c.id));closeModal();go('devices');scheduleFreshness();if(state.scan.status==='pending')schedulePoll();});
+  async function scan(scope,gatewayId,autoRegister=false){
+    await mutation('scan',{scope,...(gatewayId?{gatewayId}:{}),...(autoRegister?{autoRegister:'bambu'}:{})},async result=>{state.scan=result.scan;state.selected=new Set((result.scan.candidates||[]).filter(canImport).map(c=>c.id));closeModal();go('devices');scheduleFreshness();if(state.scan.status==='pending')schedulePoll();});
   }
   function schedulePoll(){clearTimeout(state.pollTimer);if(state.scan?.status!=='pending')return;state.pollTimer=setTimeout(()=>refreshScan(false),2500);}
   async function refreshScan(announce=true){
     if(!state.scan)return;
-    try{const result=await get('/merchant/scan-result?scanId='+encodeURIComponent(state.scan.id));state.scan=result.scan;state.error=null;if(state.scan?.status==='complete'&&!state.selected.size)state.selected=new Set(state.scan.candidates.filter(canImport).map(c=>c.id));if(state.scan?.status==='complete')applyDevices(await get('/merchant/devices'));if(announce)toast('检测结果已更新');}
-    catch(error){state.error=error;clearTimeout(state.pollTimer);render();return;}
+    const scanId=state.scan.id;
+    try{
+      const result=await get('/merchant/scan-result?scanId='+encodeURIComponent(scanId));
+      if(state.scan?.id!==scanId)return;
+      const pending=state.scan.status==='pending';
+      state.scan=result.scan;state.error=null;
+      if(state.scan?.status==='complete'){
+        if(pending)state.selected=new Set(state.scan.candidates.filter(canImport).map(c=>c.id));
+        applyDevices(await get('/merchant/devices'));
+      }
+      if(announce)toast('检测结果已更新');
+    }
+    catch(error){if(state.scan?.id===scanId){state.error=error;clearTimeout(state.pollTimer);render();}return;}
     render();schedulePoll();scheduleFreshness();
   }
   document.addEventListener('click',async event=>{
@@ -222,9 +334,11 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
     if(action==='reconnect')return reconnect();
     if(action==='refresh'){closeModal();await load();toast(state.error?'查询未完成，请重试':'已查询最新设备状态');return;}
     if(action==='discover')return discover();
+    if(action==='bambu-connect')return discover(true);
+    if(action==='rescan-gateway')return scan('real',target.dataset.gatewayId);
     if(action==='demo')return demoPrompt();
     if(action==='start-demo-scan')return scan('demo');
-    if(action==='start-real-scan')return scan('real',$('#discovery-gateway')?.value);
+    if(action==='start-real-scan'||action==='start-bambu-scan')return scan('real',$('#discovery-gateway')?.value,action==='start-bambu-scan');
     if(action==='refresh-scan')return refreshScan();
     if(action==='import'){const candidates=(state.scan?.candidates||[]).filter(c=>state.selected.has(c.id)&&canImport(c));if(!candidates.length){toast('检测结果已失效或没有可添加设备，请刷新后重新检测。');render();return;}return mutation('devices/import',{scanId:state.scan.id,candidateIds:candidates.map(c=>c.id)},async result=>{state.selected.clear();await load(false);toast('设备已添加。重复设备会自动跳过。');});}
     if(action==='pair')return pairPrompt();
@@ -250,9 +364,9 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   });
   document.addEventListener('click',event=>{if(event.target.closest('[data-action="close"]')||event.target.matches('[data-dismiss]'))pairing=null;});
   document.addEventListener('keydown',event=>{if(event.key==='Escape')pairing=null;});
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&isRoute()){render();scheduleFreshness();}});
-  window.addEventListener('pageshow',()=>scheduleFreshness());
-  window.addEventListener('pagehide',()=>{pairing=null;clearTimeout(state.pollTimer);clearTimeout(state.freshnessTimer);});
+  document.addEventListener('visibilitychange',()=>{scheduleInventoryRead();if(!document.hidden&&isRoute()){render();scheduleFreshness();}});
+  window.addEventListener('pageshow',()=>{scheduleFreshness();scheduleInventoryRead();});
+  window.addEventListener('pagehide',()=>{pairing=null;clearTimeout(inventoryTimer);clearTimeout(state.pollTimer);clearTimeout(state.freshnessTimer);});
   state.view=['devices','capabilities','inquiries','pricing','orders','operations'].includes(location.hash.slice(1))?location.hash.slice(1):'overview';
   return { isRoute, load, renderContent, nav, state, discover, pairPrompt, resetOperations:()=>operations?.reset() };
 }

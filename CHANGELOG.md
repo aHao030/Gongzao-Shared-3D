@@ -2,6 +2,10 @@
 
 点击版本号可浏览 GitHub 上该版本的代码快照。表中的提交号和北京时间来自原始 Git 历史。原始提交和 13 个附注标签保存在[完整 Git 历史包](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/Gongzao-Shared-3D.bundle)，[恢复说明](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/README.md)附有校验值。
 
+## v0.9.6 · 2026-11-11
+
+商家可通过局域网网关发现并批量登记拓竹设备，使用本机授权读取打印状态，区分广播、授权、状态未知和失联。Windows 增加轻量网关下载、启动与授权向导。完整回归 592 项通过、8 项可选外部引擎测试跳过；拓竹专项 46 项全部通过。现场型号、固件和网络条件按[拓竹接入手册](docs/BAMBU_FLEET_V0.9.6.md)验收。[版本源码](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.6)。
+
 ## v0.9.5 · 2026-11-11
 
 模型预算支持整单、平均单件和人工核价。新增独立买卖双方的店铺咨询、分店授权的模型原件、未读消息、版本化商家报价与客户确认。原报价和订单沙盒继续独立运作。完整回归 546 项通过、8 项可选外部引擎测试跳过。两家店铺隔离、报价并发和升级验证见[专项质询记录](docs/TRADE_REVIEW_V0.9.5.md)。[浏览 v0.9.5 源码](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.5) · [恢复此版本附注标签](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/v0.9.5.bundle)。
