@@ -1,5 +1,6 @@
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
+import { PRICING_VERSION, getPricingProfile, savePricingProfile, estimateBatch, estimateBatchPrice, settlementBreakdown } from './pricing.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
 
 export class PlatformError extends Error {
@@ -86,6 +87,8 @@ async function makeQuotes(workspace, payload, now, idFactory) {
   if (!materials[config.material].auto) reviewReasons.push('PROCESS_REVIEW');
   if (config.destination === 'other') reviewReasons.push('DESTINATION_REVIEW');
   if (geometry.dimensions.some(n => n > 250) || geometry.volume <= 0) reviewReasons.push('GEOMETRY_REVIEW');
+  const batch = estimateBatch(geometry.dimensions, config.qty);
+  if (!batch && !reviewReasons.includes('GEOMETRY_REVIEW')) reviewReasons.push('PLATE_LAYOUT_REVIEW');
   const quotes = [];
   for (const farm of farms) {
     const device = workspace.devices.find(d => d.farm === farm.id);
@@ -93,12 +96,11 @@ async function makeQuotes(workspace, payload, now, idFactory) {
     if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [...farm.days], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
       const weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
-      const hours = Math.max(0.6, weight / 7) * (config.quality === 'fine' ? 1.55 : 1);
-      const productionHours = hours * config.qty;
-      const materialCents = Math.round(weight * materials[config.material].centsPerGram * config.qty * farm.multiplierBps / 10000);
-      const machineCents = Math.round(hours * 700 * config.qty * farm.multiplierBps / 10000);
-      const finishingCents = farm.baseCents + Math.max(0, config.qty - 1) * 200;
-      const serviceCents = Math.round((materialCents + machineCents + finishingCents) * 700 / 10000);
+      const profile = getPricingProfile(workspace, farm.id);
+      const economics = estimateBatchPrice({ profile: { ...profile, materialKey: config.material }, batch, singleWeightGrams: weight, quantity: config.qty, quality: config.quality });
+      const { productionHours, manufacturingCents, saleMaterialCents: materialCents, saleMachineCents: machineCents, saleFinishingCents: finishingCents } = economics;
+      const hours = productionHours / config.qty;
+      const serviceCents = Math.ceil(manufacturingCents * 700 / 10000);
       const sameRegion = config.destination === farm.origin;
       const shippingCents = farm.shippingCents + (sameRegion ? 0 : config.destination === 'north' ? 800 : 400);
       const transitDays = sameRegion ? [1, 2] : config.destination === 'north' ? [3, 5] : [2, 3];
@@ -109,9 +111,13 @@ async function makeQuotes(workspace, payload, now, idFactory) {
       const days = [handlingDays + manufacturingDays + preparationDays + transitDays[0], handlingDays + manufacturingDays + preparationDays + transitDays[1] + Math.max(1, farm.days[1] - farm.days[0] - 1)];
       const totalCents = materialCents + machineCents + finishingCents + serviceCents + shippingCents;
       check(Number.isSafeInteger(totalCents) && totalCents > 0, 'INVALID_PRICE', '报价超出有效范围');
-      Object.assign(q, { weight, hours, productionHours, queueHours, preparationDays, transitDays, days, materialCents, machineCents, finishingCents, shippingCents, serviceCents, totalCents, total: money(totalCents), material: money(materialCents), machine: money(machineCents), finishing: money(finishingCents), shipping: money(shippingCents), service: money(serviceCents) });
+      const pricingSummary = { manufacturingCents, platformFeeCents: serviceCents, shippingCents, merchantReceivableCents: manufacturingCents + shippingCents, customerTotalCents: totalCents, averageUnitManufacturingCents: Math.round(manufacturingCents / config.qty) };
+      Object.assign(q, { pricingVersion: PRICING_VERSION, pricingRevision: profile.revision, batch: clone(batch), pricingSummary, weight, hours, productionHours, queueHours, preparationDays, transitDays, days, materialCents, machineCents, finishingCents, shippingCents, serviceCents, totalCents, total: money(totalCents), material: money(materialCents), machine: money(machineCents), finishing: money(finishingCents), shipping: money(shippingCents), service: money(serviceCents) });
+      // Costs and profit are owner-scoped merchant evidence, never quote/order fields.
+      (workspace.pricingEvidence ??= {})[q.quoteId] = { ...economics, quoteId: q.quoteId, farmId: farm.id, modelName: model.name, quantity: config.qty, pricingRevision: profile.revision, issuedAt: now, mode: 'DEMO_ASSUMPTIONS', batch: clone(batch), pricingSummary: clone(pricingSummary), profileSnapshot: clone(profile) };
+
     }
-    // q.material is a legacy UI cost; preserve the selected material separately.
+    // q.material is a legacy UI sales amount allocation, not a private cost; preserve the selected material separately.
     q.materialKey = config.material;
     addQuoteEvidence(q, { model, device, orders: workspace.orders, now });
     q.fingerprint = await digest(q);
@@ -154,11 +160,13 @@ async function createOrder(workspace, payload, now, idFactory) {
   check(!quote.usedByOrderId, 'QUOTE_USED', '该报价已创建订单，请获取新报价');
   const { fingerprint, usedByOrderId, ...terms } = quote;
   check(await digest(terms) === fingerprint, 'QUOTE_CHANGED', '报价快照校验失败');
+  if (!quote.review) check(quote.pricingVersion === PRICING_VERSION && quote.pricingRevision === getPricingProfile(workspace, quote.farm.id).revision, 'PRICING_CHANGED', '商家计价配置已更新，请重新测算后下单');
   const { address, addressRevision } = requireShippingAddress(workspace);
   check(quote.addressRevision === addressRevision && quote.addressFingerprint === await digest(address), 'ADDRESS_CHANGED', '收货地址已更新，请重新测算费用后下单');
   const model = find(workspace.models, quote.modelId, 'MODEL_NOT_FOUND');
   check(model.sha256 === quote.modelHash && (model.version ?? 1) === quote.modelVersion, 'MODEL_CHANGED', '文件版本已变化，请重新报价');
   const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, shippingAddress: clone(address), addressRevision, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
+  if (!quote.review) order.settlementBreakdown = { ...clone(quote.pricingSummary), source: 'V0_6_QUOTE' };
   quote.usedByOrderId = order.id;
   event(order, quote.review ? '已提交演示工程询价，尚未付款' : '已创建演示订单，模拟付款已冻结（未真实收款）', now);
   project(order); workspace.orders.push(order);
@@ -173,7 +181,7 @@ function act(workspace, payload, now, idFactory) {
     check(payload.confirm === 'RESET_DEMO', 'RESET_CONFIRMATION_REQUIRED', '重置需明确确认');
     const fresh = createWorkspace({ now });
     // Preserve the request ledger so old mutation keys cannot replay after reset.
-    Object.assign(workspace, { orders: fresh.orders, devices: fresh.devices, quotes: fresh.quotes, models: fresh.models });
+    Object.assign(workspace, { orders: fresh.orders, devices: fresh.devices, quotes: fresh.quotes, models: fresh.models, pricingEvidence: {} });
     return { reset: true };
   }
   check(text(payload.id), 'INVALID_RESOURCE_ID', '订单或设备 ID 无效', 400);
@@ -224,15 +232,25 @@ function act(workspace, payload, now, idFactory) {
     event(order, '客户已确认验收，款项仍冻结，等待模拟结算申请', now);
   } else if (action === 'request-settlement') {
     check(order.acceptanceState === 'ACCEPTED' && ['READY', 'FAILED'].includes(order.settlementState) && order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState), 'SETTLEMENT_BLOCKED', '须客户验收且没有待处理退款或争议，才可申请结算');
+    const breakdown = settlementBreakdown(order);
+    check(breakdown, 'LEGACY_SETTLEMENT_REVIEW_REQUIRED', '旧订单结算数据需要人工核验');
+    order.settlementBreakdown = breakdown;
     order.settlementState = 'REQUESTED';
     if (order.settlementAttempt) (order.settlementHistory ??= []).push(clone(order.settlementAttempt));
-    order.settlementAttempt = { id: `SET-${idFactory()}`, status: 'REQUESTED', amountCents: order.totalCents, requestedAt: now, sequence: (order.settlementAttempt?.sequence ?? 0) + 1 };
+    order.settlementAttempt = { id: `SET-${idFactory()}`, status: 'REQUESTED', amountCents: breakdown.merchantReceivableCents, amountBasis: breakdown.source, requestedAt: now, sequence: (order.settlementAttempt?.sequence ?? 0) + 1 };
     event(order, '模拟结算申请已提交，等待处理结果，尚未释放款项', now);
   } else if (action === 'resolve-settlement') {
     check(order.settlementState === 'REQUESTED' && order.settlementAttempt?.status === 'REQUESTED', 'SETTLEMENT_NOT_PENDING', '没有待处理的结算申请');
     check(payload.attemptId === order.settlementAttempt.id, 'SETTLEMENT_ATTEMPT_MISMATCH', '结算处理结果不属于当前申请');
     check(['succeeded', 'failed'].includes(payload.outcome), 'INVALID_SETTLEMENT_RESULT', '请选择模拟结算成功或失败', 400);
-    check(order.acceptanceState === 'ACCEPTED' && order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState) && order.settlementAttempt.amountCents === order.totalCents, 'SETTLEMENT_BLOCKED', '当前状态不允许完成结算');
+    check(order.acceptanceState === 'ACCEPTED' && order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState), 'SETTLEMENT_BLOCKED', '当前状态不允许完成结算');
+    // A v0.5 in-flight gross amount is immutable historical evidence. It may
+    // fail and be retried with a derived split, but cannot succeed as a net payout.
+    if (!order.settlementBreakdown) check(payload.outcome === 'failed', 'LEGACY_SETTLEMENT_REVIEW_REQUIRED', '旧版申请包含客户总款，请先标记失败后重新申请商家分账');
+    else {
+      const breakdown = settlementBreakdown(order);
+      check(order.settlementAttempt.amountCents === breakdown.merchantReceivableCents, 'SETTLEMENT_BLOCKED', '结算申请金额与商家应收不一致');
+    }
     if (payload.outcome === 'failed') {
       check(reasonText(payload.reason), 'RESULT_REASON_REQUIRED', '请填写模拟失败原因（最多 500 字）', 400);
       order.settlementState = 'FAILED'; order.settlementAttempt.status = 'FAILED'; order.settlementAttempt.reason = payload.reason;
@@ -294,10 +312,11 @@ function act(workspace, payload, now, idFactory) {
 export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID() } = {}) {
   check(command && typeof command === 'object' && !Array.isArray(command), 'INVALID_INPUT', '命令无效', 400);
   const { type, payload = {}, idempotencyKey } = command;
-  check(['register-model', 'quote', 'order', 'action', 'customer-profile'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
+  check(['register-model', 'quote', 'order', 'action', 'customer-profile', 'pricing-profile'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
   check(text(idempotencyKey, 160), 'IDEMPOTENCY_REQUIRED', '写操作必须提供幂等标识', 400);
   check(payload && typeof payload === 'object' && !Array.isArray(payload), 'INVALID_INPUT', 'payload 必须为对象', 400);
   check(Number.isFinite(now) && now >= 0, 'INVALID_CLOCK', '服务端时间无效');
+  if (type === 'pricing-profile') check(original.merchant?.profile, 'MERCHANT_REQUIRED', '请先开通商家工作台', 403);
   const requestDigest = await digest({ type, payload });
   if (own(original.idempotency, idempotencyKey)) {
     const cached = original.idempotency[idempotencyKey];
@@ -307,7 +326,8 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
   check(Object.keys(original.idempotency).length < 2000, 'IDEMPOTENCY_CAPACITY', '演示空间操作记录已达 2000 条，请创建新的演示空间');
   const workspace = clone(original);
   let result;
-  if (type === 'customer-profile') result = saveCustomerProfile(workspace, payload, now);
+  if (type === 'pricing-profile') result = savePricingProfile(workspace, payload, now);
+  else if (type === 'customer-profile') result = saveCustomerProfile(workspace, payload, now);
   else if (type === 'register-model') result = registerModel(workspace, payload, now, idFactory);
   else if (type === 'quote') result = await makeQuotes(workspace, payload, now, idFactory);
   else if (type === 'order') result = await createOrder(workspace, payload, now, idFactory);

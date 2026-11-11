@@ -1,7 +1,7 @@
 import { get, prepareMutation } from './api-client.js';
 
 export function createMerchantUI({ icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session }) {
-  const state = { profile:null, loaded:false, loading:false, busy:false, error:null, view:'overview', devices:[], gateways:[], counts:{total:0,real:0,online:0,offline:0,demo:0}, scan:null, selected:new Set(), lastRefreshed:null, pollTimer:null, freshnessTimer:null, clockOffset:0, retry:null };
+  const state = { profile:null, loaded:false, loading:false, busy:false, error:null, view:'overview', devices:[], gateways:[], counts:{total:0,real:0,online:0,offline:0,demo:0}, scan:null, selected:new Set(), lastRefreshed:null, pollTimer:null, freshnessTimer:null, clockOffset:0, retry:null, pricing:null, pricingLoading:false, pricingFarm:'f1', pricingDrafts:{}, pricingDraftRevisions:{} };
   let pairing = null;
   const esc=escape, I=icon;
   const $=s=>document.querySelector(s);
@@ -24,7 +24,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   const canImport=c=>state.scan?.status==='complete'&&state.scan.importable!==false&&new Date(state.scan.expiresAt).getTime()>Date.now()+state.clockOffset&&!c.registered&&c.connectionState==='online'&&['moonraker','octoprint'].includes(c.protocol);
   const onlineGateways=()=>state.gateways.map(displayGateway).filter(g=>g.status==='online'&&!g.revokedAt);
   function notice(){return state.error?'<div class="request-notice error" role="alert">'+I('info')+'<span>'+esc(state.error.message)+'</span>'+button('retry','重试')+'</div>':'';}
-  function go(view){state.view=view;const hash=view==='overview'?'':'#'+view;history.replaceState(null,'','/merchant'+hash);render();window.scrollTo({top:0,behavior:'instant'});}
+  function go(view){state.view=['overview','devices','pricing','orders'].includes(view)?view:'overview';const hash=state.view==='overview'?'':'#'+state.view;history.replaceState(null,'','/merchant'+hash);render();window.scrollTo({top:0,behavior:'instant'});if(state.view==='pricing')loadPricing();}
   function applyDevices(result){state.devices=result.devices||[];state.counts=result.counts||state.counts;if(result.gateways)state.gateways=result.gateways;state.lastRefreshed=Date.now();state.clockOffset=Number.isFinite(result.serverNow)?result.serverNow-Date.now():0;scheduleFreshness();}
   async function load(show=true){
     if(state.loading)return;state.loading=true;if(show)render();
@@ -32,7 +32,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
       const session=await get('/merchant/session');state.profile=session.profile;state.error=null;
       if(state.profile){
         const [devices,gateways,scan]=await Promise.all([get('/merchant/devices'),get('/merchant/gateways'),get('/merchant/scan-result')]);
-        applyDevices(devices);state.gateways=gateways.gateways||[];state.scan=scan.scan||null;
+        applyDevices(devices);state.gateways=gateways.gateways||[];state.scan=scan.scan||null;if(state.view==='pricing')await loadPricing(false);
       }
       state.loaded=true;
     }catch(error){state.error=error;}
@@ -64,7 +64,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   }
   function overview(){
     const connected=onlineGateways();
-    return heading('BUSINESS WORKSPACE','专注制造。','欢迎回来，'+esc(state.profile.name)+'。你的设备与工作，都在这里。',button('devices','管理设备 '+I('arrow'),true))+summary()+
+    return heading('BUSINESS WORKSPACE','专注制造。','欢迎回来，'+esc(state.profile.name)+'。你的设备与工作，都在这里。',button('pricing','批量计价')+button('devices','管理设备 '+I('arrow'),true))+summary()+
       '<div class="merchant-overview-grid"><section class="card overview-feature"><div class="overview-feature-icon">'+I('printer')+'</div><div class="eyebrow">YOUR MACHINES</div><h2>设备接入，简单一点。</h2><p>已有设备联网，却还没添加到平台？<br/>连接本地网关，一次检测，批量添加。</p><div class="overview-feature-actions">'+button('discover','检测并添加设备 '+I('plus'),true)+button('refresh','查询已接入设备')+'</div></section><section class="card gateway-overview"><div class="section-heading"><h2>本地网关</h2><span class="badge">'+connected.length+' 个在线</span></div><div class="gateway-graphic">'+I('network')+'</div><h3>'+(connected.length?'已连接到你的制造空间':'连接你的第一台网关')+'</h3><p>在商家的电脑上运行网关，<br/>平台就能读取已授权设备的状态。</p>'+button('pair','连接本地网关 '+I('arrow'))+'</section></div>'+
       '<div class="merchant-bottom-note">'+I('shield')+'<span>已开放只读协议识别；具体机型、打印状态与生产能力仍需验证。</span><button class="text-link" data-merchant-action="demo">先体验添加流程 '+I('arrow')+'</button></div>';
   }
@@ -96,11 +96,78 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
         const eligible=canImport(c);return '<label class="candidate-row"><input type="checkbox" data-candidate-id="'+esc(c.id)+'" '+(eligible?'':'disabled')+' '+(state.selected.has(c.id)&&eligible?'checked':'')+'/><span class="equipment-icon">'+I('printer')+'</span><span class="candidate-name"><strong>'+esc(c.name)+'</strong><small>'+esc(c.protocol)+' · '+esc(c.endpoint||'演示设备')+'</small></span><span class="badge">'+(c.registered?(c.registrationConflict==='OTHER_GATEWAY'?'已在另一网关登记':c.registrationConflict==='IDENTITY_CHANGED'?'设备标识冲突':'已添加'):!['moonraker','octoprint'].includes(c.protocol)?'暂不支持':c.connectionState==='authorization_required'?'需要设备授权':c.connectionState==='online'?'可添加':'未连接')+'</span></label>';}).join('')+'</div><div class="scan-footer"><span>添加设备不会启动打印。</span>'+button('import','添加所选设备'+(selected.length?' · '+selected.length:''),true,selected.length?'':'disabled')+'</div>':
       '<div class="empty-state"><h3>没有发现可用设备</h3><p>请确认设备与网关位于同一局域网。<br/>不支持自动发现的设备，可在网关配置中填写局域网地址。</p>'+button('discover','再次检测')+'</div>')+'</section>';
   }
+  const pricingFields=[
+    ['targetMarginBps','目标毛利率','%',100,0,80,.01],
+    ['minimumOrderProfitCents','每单最低预测利润','元 / 单',100,0,10000,.01],
+    ['minimumProfitCentsPerMachineHour','每设备小时最低预测利润','元 / 设备小时',100,0,1000,.01],
+    ['PLA','PLA 材料采购价','元 / 千克',100,.01,100000,.01],
+    ['PETG','PETG 材料采购价','元 / 千克',100,.01,100000,.01],
+    ['machineCostCentsPerHour','设备折旧与维护','元 / 设备小时',100,0,1000,.01],
+    ['laborCentsPerHour','人工单价','元 / 人工小时',100,0,1000,.01],
+    ['estimatedThroughputGramsPerHour','演示出料估速','克 / 设备小时',1,.1,1000,.01],
+    ['warmupMinutesPerPlate','每板预热时间','分钟 / 板',1,0,120,.01],
+    ['electricityCentsPerKwh','电价','元 / 千瓦时',100,0,100,.01],
+    ['averagePowerWatts','设备平均功率','瓦',1,0,10000,1],
+    ['orderSetupMinutes','每单准备时间','分钟 / 单',1,0,600,.01],
+    ['plateSetupMinutes','每板换板与准备','分钟 / 板',1,0,600,.01],
+    ['finishingMinutesPerPart','每件清理与后处理','分钟 / 件',1,0,600,.01],
+    ['packagingCentsPerOrder','每单包装成本','元 / 单',100,0,1000,.01],
+    ['riskReserveBps','成本风险预留比例','%',100,0,100,.01]
+  ];
+  const priceMoney=cents=>'¥'+(Number(cents)/100).toFixed(2);
+  const margin=bps=>(Number(bps)/100).toFixed(2)+'%';
+  function pricingProfile(){return state.pricing?.profiles.find(p=>p.farmId===state.pricingFarm);}
+  function pricingDraft(){
+    const profile=pricingProfile();if(!profile)return {};
+    state.pricingDraftRevisions[profile.farmId]??=profile.revision;
+    return state.pricingDrafts[profile.farmId]??=Object.fromEntries(pricingFields.map(([key,,,scale])=>[key,String((['PLA','PETG'].includes(key)?profile.materialCostCentsPerKg[key]:profile[key])/scale)]));
+  }
+  async function loadPricing(show=true,resetDrafts=false){
+    if(state.pricingLoading)return;state.pricingLoading=true;if(show)render();
+    try{state.pricing=await get('/merchant/pricing');state.error=null;if(resetDrafts){state.pricingDrafts={};state.pricingDraftRevisions={};state.retry=null;}if(!pricingProfile())state.pricingFarm=state.pricing.profiles[0]?.farmId||'f1';}
+    catch(error){state.error=error;}
+    finally{state.pricingLoading=false;if(show)render();}
+  }
+  async function savePricing(){
+    const profile=pricingProfile(),form=$('#merchant-pricing-form');if(!profile||state.pricingLoading||!form?.reportValidity())return;
+    const draft=pricingDraft(),values={materialCostCentsPerKg:{}};
+    for(const [key,,,scale,min,max,step] of pricingFields){
+      const raw=Number(draft[key]),value=scale===100?Math.round(raw*scale):raw;
+      if(draft[key]===''||!Number.isFinite(raw)||raw<min||raw>max||Math.abs(raw/step-Math.round(raw/step))>.000001){state.error={message:'请检查计价参数的范围和小数位。'};render();return;}
+      if(['PLA','PETG'].includes(key))values.materialCostCentsPerKg[key]=value;else values[key]=value;
+    }
+    return mutation('pricing',{farmId:profile.farmId,expectedRevision:state.pricingDraftRevisions[profile.farmId],profile:values,demoAcknowledged:true},async()=>{
+      delete state.pricingDrafts[profile.farmId];delete state.pricingDraftRevisions[profile.farmId];await loadPricing(false);toast('演示计价已保存。新报价使用新设置，已有订单金额保持不变。');
+    });
+  }
+  function pricingInput(field){
+    const [key,label,unit,,min,max,step]=field;
+    return '<label class="pricing-field" for="pricing-'+key+'"><span>'+label+'</span><div><input class="input" id="pricing-'+key+'" data-pricing-field="'+key+'" type="number" inputmode="decimal" required min="'+min+'" max="'+max+'" step="'+step+'" value="'+esc(pricingDraft()[key])+'" '+(state.busy?'disabled':'')+'/><small>'+unit+'</small></div></label>';
+  }
+  function economicsDetails(e){
+    if(!e)return '<p class="pricing-muted">旧订单没有成本快照，无法反推真实利润。</p>';
+    const parts=[['材料',e.costBreakdown.materialCents],['设备折旧与维护',e.costBreakdown.machineCents],['电费',e.costBreakdown.electricityCents],['每单准备人工',e.costBreakdown.orderSetupCents],['换板准备人工',e.costBreakdown.plateSetupCents],['逐件后处理人工',e.costBreakdown.finishingCents],['包装',e.costBreakdown.packagingCents],['成本风险预留',e.costBreakdown.riskReserveCents]];
+    return '<div class="pricing-economics-summary"><div><span>已配置成本估算</span><strong>'+priceMoney(e.estimatedCostCents)+'</strong></div><div><span>预测制造利润</span><strong>'+priceMoney(e.estimatedProfitCents)+'</strong></div><div><span>预测利润率（未计税费等）</span><strong>'+margin(e.estimatedMarginBps)+'</strong></div></div><details class="pricing-cost-details"><summary>查看内部成本估算</summary>'+parts.map(([name,value])=>'<div class="detail-row"><span>'+name+'</span><strong>'+priceMoney(value)+'</strong></div>').join('')+'<p class="pricing-muted">预计设备机时 '+Number(e.productionHours).toFixed(2)+' 小时 · 计价版本 '+e.pricingRevision+'。利润按制造应收减上述成本预测，未计入税费、支付渠道费及未录入的经营开销，不是实际净利润。</p></details>';
+  }
+  function merchantReceivable(breakdown){
+    if(!breakdown)return '<p class="pricing-muted">缺少可核验分账快照，暂不展示应收。</p>';
+    return '<div class="pricing-receivable">'+[['制造应收',breakdown.manufacturingCents],['运费补偿',breakdown.shippingCents],['平台服务费（不归商家）',breakdown.platformFeeCents],['商家应收合计',breakdown.merchantReceivableCents]].map(([label,value])=>'<div><span>'+label+'</span><strong>'+priceMoney(value)+'</strong></div>').join('')+'</div>'+(breakdown.source==='LEGACY_DERIVED'?'<p class="pricing-muted">按旧订单的原报价拆分，不按当前设置重新计价。</p>':'');
+  }
+  function pricingPage(){
+    const profile=pricingProfile();
+    let content=heading('BATCH PRICING','批量制造，也要有好收益。','按整板摊薄准备成本，逐件保留耗材、机时与后处理。收益底线由商家设置。',button('refresh-pricing','重新读取',false,state.pricingLoading?'disabled':''));
+    if(!profile)return content+'<section class="card empty-state"><p>'+(state.pricingLoading?'正在读取演示计价…':'暂未读取计价设置。请重试。')+'</p></section>';
+    const quotes=(state.pricing.quoteEconomics||[]).filter(q=>q.farmId===profile.farmId&&!q.usedByOrderId).slice(0,1),orders=(state.pricing.orderEconomics||[]).filter(o=>o.farmId===profile.farmId);
+    content+='<div class="pricing-demo-note">演示参数 · 以下 3 家工场是当前账号中的沙盒实例。默认目标毛利率 30% 仅用于试算，不是行业正常利润或收益保证；不会更改真实商家的计价。</div><section class="card pricing-settings"><div class="pricing-settings-head"><div><h2>设置你的计价底线</h2><p>制造报价取三者的最高值：目标毛利率、每单利润下限、每设备小时利润下限。</p></div><div class="pricing-farm-select"><label for="pricing-farm">演示工场</label><select class="select" id="pricing-farm" '+(state.busy?'disabled':'')+'>'+state.pricing.profiles.map(p=>'<option value="'+esc(p.farmId)+'" '+(p.farmId===profile.farmId?'selected':'')+'>'+esc(p.farmName)+' · 演示</option>').join('')+'</select></div></div><form id="merchant-pricing-form"><div class="pricing-field-grid pricing-protection">'+pricingFields.slice(0,3).map(pricingInput).join('')+'</div><div class="pricing-field-grid">'+pricingFields.slice(3,7).map(pricingInput).join('')+'</div><details class="pricing-advanced"><summary>更多成本参数</summary><div class="pricing-field-grid">'+pricingFields.slice(7).map(pricingInput).join('')+'</div></details><div class="pricing-save-row"><p>保存仅影响新报价；已下单金额保持原快照。重新读取会放弃未保存的修改。</p>'+button('save-pricing',state.busy?'正在保存…':'保存演示计价',true,state.pricingLoading?'disabled':'')+'</div></form></section><div class="pricing-method-note"><strong>一板多件，不是同样时间无限复制。</strong><p>材料、挤出机时和逐件后处理随数量增加，每单准备与换板成本按订单和板数分摊。当前仅用包围盒估算排板，未实际切片；不与其他客户拼单，也不等待凑满一板。</p></div>';
+    if(quotes.length){const q=quotes[0];content+='<section class="card pricing-preview"><div class="pricing-settings-head"><div><h2>最近一次报价预览</h2><p>'+esc(q.modelName)+' · '+q.quantity+' 件 · '+q.batch.plateCount+' 板（包围盒估算）'+(q.pricingRevision!==profile.revision?' · 旧计价版本，请重新询价':Date.now()>=q.expiresAt?' · 报价已过期':'')+'</p></div><span class="badge">商家内部测算</span></div>'+merchantReceivable(q.pricingSummary)+economicsDetails(q)+'</section>';}
+    content+='<section class="pricing-orders"><div class="section-heading"><h2>订单收益估算 <span class="small">'+orders.length+' 笔 · 当前演示工场</span></h2></div><p class="pricing-muted">展示下单时的成本和金额快照。取消、退款及未完成订单的预测利润不代表已实现收入。</p>'+(orders.length?orders.map(o=>'<article class="card pricing-order"><div class="pricing-order-title"><div><h3>'+esc(o.modelName)+' · '+o.quantity+' 件</h3><p>'+esc(o.orderId)+'</p></div><span class="badge">'+(o.refundState==='SIMULATED_REFUNDED'?'已模拟退款':o.legacyUnsplit?'历史结算':o.settlementState==='SIMULATED_SETTLED'?'模拟已结算':'尚未结算')+'</span></div>'+(o.legacyUnsplit?'<p class="pricing-muted">旧版已结算记录按原金额保留，不套用新费率或重新计算商家应收。</p>':merchantReceivable(o.settlementBreakdown)+economicsDetails(o.economics))+'</article>').join(''):'<div class="card empty-state"><p>还没有此工场的订单。完成演示询价后，可在这里核对收益。</p></div>')+'</section>';
+    return content;
+  }
   function renderContent(){
     if(!state.profile||location.pathname.replace(/\/$/,'')==='/merchant/login')return loginPage();
-    return notice()+(state.view==='devices'?registry():state.view==='orders'?'<div class="merchant-legacy-label">订单履约沙盒 · 以下生产、物流与结算为模拟操作，与真实设备清单分开。</div>'+legacyOrders():overview());
+    return notice()+(state.view==='devices'?registry():state.view==='pricing'?pricingPage():state.view==='orders'?'<div class="merchant-legacy-label">订单履约沙盒 · 以下生产、物流与结算为模拟操作，与真实设备清单分开。</div>'+legacyOrders():overview());
   }
-  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['orders','订单演示']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'</nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
+  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['pricing','计价'],['orders','订单']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'</nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
   function discover(){
     const gateways=onlineGateways();
     if(!gateways.length){modal('连接后，一键发现','<div class="connect-explainer">'+I('network')+'<h3>需要一个在线的本地网关</h3><p>网页无法直接查找你局域网里的打印机。<br/>在连接设备的电脑上运行共造网关，即可完成检测。</p></div><div class="setup-steps"><div><b>1</b><span>创建并下载网关配置</span></div><div><b>2</b><span>在商家电脑上运行网关</span></div><div><b>3</b><span>回到这里检测并添加设备</span></div></div>','<button class="btn" data-action="close">稍后</button>'+button('pair','连接本地网关',true));return;}
@@ -128,10 +195,13 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     event.preventDefault();const action=target.dataset.merchantAction;if(state.busy)return;
     if(action==='view')return go(target.dataset.view);
     if(action==='devices')return go('devices');
+    if(action==='pricing')return go('pricing');
+    if(action==='refresh-pricing')return loadPricing(true,true);
+    if(action==='save-pricing')return savePricing();
     if(action==='device-details')return deviceDetails(target.dataset.deviceId);
     if(action==='enter'){history.replaceState(null,'','/merchant');return go('overview');}
     if(action==='enroll'){const name=$('#merchant-name')?.value.trim();if(!name){$('#merchant-name-error').textContent='请填写店铺或工作室名称。';return;}return mutation('enroll',{name},async result=>{state.profile=result.profile;history.replaceState(null,'','/merchant');await load(false);toast('商家空间已创建');});}
-    if(action==='retry'){if(state.retry)return execute(state.retry.task,state.retry.success);return load();}
+    if(action==='retry'){if(state.retry)return execute(state.retry.task,state.retry.success);return state.view==='pricing'?loadPricing():load();}
     if(action==='reconnect')return reconnect();
     if(action==='refresh'){closeModal();await load();toast(state.error?'查询未完成，请重试':'已查询最新设备状态');return;}
     if(action==='discover')return discover();
@@ -147,8 +217,17 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     if(action==='revoke'){const gateway=state.gateways.find(g=>g.id===target.dataset.gatewayId);if(!gateway)return;modal('撤销网关连接','<p>撤销后，'+esc(gateway.name)+' 将不能继续同步设备信息。已添加设备保留在清单中。</p>','<button class="btn" data-action="close">保留连接</button>'+button('confirm-revoke','撤销连接',true,'data-gateway-id="'+esc(gateway.id)+'"'));return;}
     if(action==='confirm-revoke')return mutation('gateways/revoke',{gatewayId:target.dataset.gatewayId},async()=>{pairing=null;closeModal();await load(false);toast('网关连接已撤销');});
   });
+  document.addEventListener('submit',event=>{
+    if(!isRoute()||event.target.id!=='merchant-pricing-form')return;
+    event.preventDefault();if(!state.busy)savePricing();
+  });
+  document.addEventListener('input',event=>{
+    if(!isRoute()||state.busy||!event.target.matches('[data-pricing-field]'))return;
+    pricingDraft()[event.target.dataset.pricingField]=event.target.value;
+  });
   document.addEventListener('change',event=>{
     if(!isRoute()||state.busy)return;
+    if(event.target.matches('#pricing-farm')){state.pricingFarm=event.target.value;render();return;}
     if(event.target.matches('[data-candidate-id]')){const id=event.target.dataset.candidateId;if(event.target.checked)state.selected.add(id);else state.selected.delete(id);render();}
     if(event.target.matches('[data-merchant-select-all]')){state.selected=new Set(event.target.checked?(state.scan?.candidates||[]).filter(canImport).map(c=>c.id):[]);render();}
   });
@@ -157,6 +236,6 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&isRoute()){render();scheduleFreshness();}});
   window.addEventListener('pageshow',()=>scheduleFreshness());
   window.addEventListener('pagehide',()=>{pairing=null;clearTimeout(state.pollTimer);clearTimeout(state.freshnessTimer);});
-  state.view=['devices','orders'].includes(location.hash.slice(1))?location.hash.slice(1):'overview';
+  state.view=['devices','pricing','orders'].includes(location.hash.slice(1))?location.hash.slice(1):'overview';
   return { isRoute, load, renderContent, nav, state, discover, pairPrompt };
 }

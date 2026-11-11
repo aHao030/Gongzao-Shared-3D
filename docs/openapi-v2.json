@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.5 客户与履约沙盒 API（/api/v2）",
-    "version": "0.5.0",
+    "title": "共造 v0.6 批量计价与履约沙盒 API（/api/v2）",
+    "version": "0.6.0",
     "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md."
   },
   "servers": [
@@ -392,6 +392,59 @@
           }
         }
       }
+    },
+    "/api/v2/merchant/pricing": {
+      "get": {
+        "summary": "Read owner-scoped demo farm cost settings and predicted economics",
+        "description": "Requires a merchant profile. Not an actual multi-vendor marketplace. Returns profiles, private quoteEconomics and orderEconomics. These internal cost records are absent from customer endpoints.",
+        "responses": {
+          "200": {
+            "description": "Demo pricing and private economics"
+          },
+          "403": {
+            "description": "Merchant profile required"
+          }
+        }
+      },
+      "post": {
+        "summary": "Replace one demo farm pricing profile with optimistic revision check",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MerchantPricingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved profile and public workspace; no cost ledger in workspace"
+          },
+          "400": {
+            "description": "Invalid cost settings"
+          },
+          "403": {
+            "description": "Merchant profile required"
+          },
+          "409": {
+            "description": "Revision or idempotency conflict"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -466,7 +519,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.5.0",
+            "const": "0.6.0",
             "type": "string"
           },
           "mode": {
@@ -985,7 +1038,8 @@
                 "MODEL_REVIEW",
                 "PROCESS_REVIEW",
                 "DESTINATION_REVIEW",
-                "GEOMETRY_REVIEW"
+                "GEOMETRY_REVIEW",
+                "PLATE_LAYOUT_REVIEW"
               ]
             }
           },
@@ -1145,6 +1199,25 @@
           "estimation": {
             "$ref": "#/components/schemas/QuoteEstimation",
             "description": "Present on new v0.5 quotes and covered by the fingerprint. No slicer or real hardware is used."
+          },
+          "pricingRevision": {
+            "type": "integer"
+          },
+          "pricingVersion": {
+            "type": "string"
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pricingSummary": {
+            "$ref": "#/components/schemas/PricingSummary"
           }
         },
         "required": [
@@ -1499,6 +1572,25 @@
           "refundedAt": {
             "type": "number",
             "description": "Unix milliseconds. Absent until the corresponding simulated event."
+          },
+          "settlementBreakdown": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PricingSummary"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "enum": [
+                      "V0_6_QUOTE",
+                      "LEGACY_DERIVED"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "New records use merchant receivable for settlement; full customer payment remains refund basis. Old completed gross settlements are not rewritten."
           }
         },
         "required": [
@@ -2471,6 +2563,351 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "MerchantPricingInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machineCostCentsPerHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "electricityCentsPerKwh": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "averagePowerWatts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "laborCentsPerHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "packagingCentsPerOrder": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "riskReserveBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000,
+            "description": "Reserve markup applied to estimated costs, NOT a statistical print failure probability."
+          },
+          "targetMarginBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8000,
+            "description": "Target profit divided by merchant manufacturing revenue, excluding shipping and platform fee. Predicted, not guaranteed actual profit."
+          },
+          "minimumOrderProfitCents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "minimumProfitCentsPerMachineHour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "estimatedThroughputGramsPerHour": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1000
+          },
+          "warmupMinutesPerPlate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "orderSetupMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "plateSetupMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "finishingMinutesPerPart": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 600
+          },
+          "materialCostCentsPerKg": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "PLA": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000000
+              },
+              "PETG": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000000
+              }
+            },
+            "required": [
+              "PLA",
+              "PETG"
+            ]
+          }
+        },
+        "required": [
+          "machineCostCentsPerHour",
+          "electricityCentsPerKwh",
+          "averagePowerWatts",
+          "laborCentsPerHour",
+          "packagingCentsPerOrder",
+          "riskReserveBps",
+          "targetMarginBps",
+          "minimumOrderProfitCents",
+          "minimumProfitCentsPerMachineHour",
+          "estimatedThroughputGramsPerHour",
+          "warmupMinutesPerPlate",
+          "orderSetupMinutes",
+          "plateSetupMinutes",
+          "finishingMinutesPerPart",
+          "materialCostCentsPerKg"
+        ]
+      },
+      "MerchantPricingProfile": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "machineCostCentsPerHour": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "electricityCentsPerKwh": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "averagePowerWatts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "laborCentsPerHour": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "packagingCentsPerOrder": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "riskReserveBps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000,
+                "description": "Reserve markup applied to estimated costs, NOT a statistical print failure probability."
+              },
+              "targetMarginBps": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8000,
+                "description": "Target profit divided by merchant manufacturing revenue, excluding shipping and platform fee. Predicted, not guaranteed actual profit."
+              },
+              "minimumOrderProfitCents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "minimumProfitCentsPerMachineHour": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "estimatedThroughputGramsPerHour": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 1000
+              },
+              "warmupMinutesPerPlate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 120
+              },
+              "orderSetupMinutes": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 600
+              },
+              "plateSetupMinutes": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 600
+              },
+              "finishingMinutesPerPart": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 600
+              },
+              "materialCostCentsPerKg": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "PLA": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000000
+                  },
+                  "PETG": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000000
+                  }
+                },
+                "required": [
+                  "PLA",
+                  "PETG"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "properties": {
+              "farmId": {
+                "type": "string"
+              },
+              "farmName": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "updatedAt": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "mode": {
+                "const": "DEMO_ASSUMPTIONS"
+              }
+            }
+          }
+        ]
+      },
+      "PricingSummary": {
+        "type": "object",
+        "properties": {
+          "manufacturingCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "platformFeeCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "shippingCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "merchantReceivableCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "customerTotalCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "averageUnitManufacturingCents": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "description": "Customer-visible selling amounts, not private production costs. merchantReceivable = manufacturing + shipping; customerTotal = merchantReceivable + platformFee. Rounded unit average is informational; use total as authority."
+      },
+      "BatchEstimate": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "const": "BOUNDING_BOX_GRID_ESTIMATE"
+          },
+          "plateSizeMm": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "spacingMm": {
+            "type": "number"
+          },
+          "edgeMarginMm": {
+            "type": "number"
+          },
+          "capacityPerPlate": {
+            "type": "integer"
+          },
+          "plateCount": {
+            "type": "integer"
+          },
+          "partsPerPlate": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "rotationDegrees": {
+            "enum": [
+              0,
+              90
+            ]
+          },
+          "verified": {
+            "const": false
+          },
+          "mixedOrders": {
+            "const": false
+          },
+          "waitForOtherOrders": {
+            "const": false
+          }
+        },
+        "description": "Unverified bounding-box grid estimate. Does not produce toolpaths or check supports, brim or physical collisions. Not cross-customer batching."
+      },
+      "MerchantPricingRequest": {
+        "type": "object",
+        "required": [
+          "farmId",
+          "expectedRevision",
+          "profile",
+          "demoAcknowledged"
+        ],
+        "properties": {
+          "farmId": {
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "profile": {
+            "$ref": "#/components/schemas/MerchantPricingInput"
+          },
+          "demoAcknowledged": {
+            "const": true
           }
         }
       }

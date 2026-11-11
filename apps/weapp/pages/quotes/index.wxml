@@ -11,7 +11,7 @@
       <view class="row"><view class="section-title">{{item.name}}</view><view class="badge">{{item.tag}}</view></view>
       <view class="divider"></view>
       <view class="row"><view><view class="label">示例总金额</view><view class="price">{{item.priceText}}</view></view><view><view class="label">示例收货周期</view><view class="section-title">{{item.lead}}</view></view></view>
-      <view class="card-foot">模拟制作 {{item.production}}，另计模拟质检与运输。</view>
+      <view class="card-foot">{{item.review ? "工艺与交期需工程审核后确认。" : "模拟制作 " + item.production + "，另计模拟质检与运输。"}}</view><view wx:if="{{item.batchNote}}" class="card-foot">{{item.batchNote}}</view><view wx:if="{{item.unitPriceText}}" class="card-foot">{{item.unitPriceText}}</view>
       <button class="primary" data-id="{{item.id}}" bindtap="saveOrder" disabled="{{saving}}">{{isLocal ? "保存本机演示订单" : "创建服务端沙盒订单"}}</button>
     </view>
   </block>

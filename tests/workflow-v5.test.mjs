@@ -47,7 +47,7 @@ test('acceptance, settlement request and settlement result are independent durab
   const requested = await s.action('request-settlement', id, {}, 'settle-once');
   assert.equal(requested.result.order.settlementState, 'REQUESTED');
   assert.equal(requested.result.order.paymentState, 'SIMULATED_FROZEN');
-  assert.equal(requested.result.order.settlementAttempt.amountCents, s.current(id).totalCents);
+  assert.equal(requested.result.order.settlementAttempt.amountCents, s.current(id).settlementBreakdown.merchantReceivableCents);
   const attemptId = settlementId(s, id);
   s.workspace = JSON.parse(JSON.stringify(s.workspace));
   const before = s.workspace.revision;

@@ -20,7 +20,7 @@ function completeKey(scope) { const keys = storedKeys(); delete keys[scope]; wx.
 function getMode() { return mode; }
 function getModeInfo() {
   return { mode, modeIndex: mode === 'server' ? 1 : 0, modeLabel: mode === 'server' ? '服务端沙盒' : '本机演示', isLocal: mode === 'local',
-    modeNote: mode === 'server' ? '报价与订单来自服务端沙盒；未连接真实设备、支付或承运商。' : '仅本机示例数据；不会上传图纸、调用真实设备或收取费用。' };
+    modeNote: mode === 'server' ? '报价与订单来自服务端沙盒；未连接真实设备、支付或承运商。' : '旧版本机示例计价，不使用服务端批量成本算法；不会上传图纸、调用真实设备或收取费用。' };
 }
 function remoteClient() {
   if (!config.AUTH_ADAPTER_READY) { const error = new Error('当前服务端只支持 Sites 身份；微信小程序鉴权尚未接入。请先由开发者完成受支持的登录与令牌验证，不能复用 ChatGPT Cookie。'); error.code = 'AUTH_ADAPTER_NOT_READY'; throw error; }
@@ -48,8 +48,10 @@ async function getQuotes(spec) {
   const result = await remoteClient().getQuotes(input, retainedKey(scope));
   completeKey(scope);
   selectedRemoteQuotes = result.quotes;
-  return result.quotes.map(quote => ({ id: quote.quoteId, name: quote.farm && quote.farm.name || '服务端工坊', tag: quote.review ? '需工程审核' : '服务端示例报价', priceText: priceText(quote.total),
-    lead: Array.isArray(quote.days) ? quote.days.join('–') + ' 天（演示预计）' : '待确认', production: typeof quote.productionHours === 'number' ? quote.productionHours.toFixed(1) + ' 小时' : '工程确认', review: !!quote.review }));
+  return result.quotes.map(quote => ({ id: quote.quoteId, name: quote.farm && quote.farm.name || '服务端工坊', tag: quote.review ? '需工程审核' : '服务端示例报价', priceText: quote.review ? '待工程报价' : priceText(quote.total),
+    lead: !quote.review && Array.isArray(quote.days) ? quote.days.join('–') + ' 天（演示预计）' : '待确认', production: !quote.review && typeof quote.productionHours === 'number' ? quote.productionHours.toFixed(1) + ' 小时' : '工程确认', review: !!quote.review,
+    batchNote: !quote.review && quote.batch ? '预计 ' + quote.batch.plateCount + ' 板，每板最多 ' + quote.batch.capacityPerPlate + ' 件；未执行真实排版或切片。' : '',
+    unitPriceText: !quote.review && quote.pricingSummary && typeof quote.pricingSummary.averageUnitManufacturingCents === 'number' ? '平均制造单价 ' + priceText(quote.pricingSummary.averageUnitManufacturingCents / 100) + '，运费和平台费另列。' : '' }));
 }
 function requestKey() { return 'weapp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) + '-' + Math.random().toString(36).slice(2, 12); }
 async function createOrder(quoteId) {
@@ -85,9 +87,10 @@ function remoteOrder(order) {
   else if (order.refundState === 'REJECTED') settlement += '；退款申请已驳回';
   if (order.paymentState === 'UNPAID') settlement = '尚未付款';
   const events = Array.isArray(order.events) ? order.events : [];
-  return { id: order.id, modelName: order.modelName || '服务端示例模型', material: order.material || '待确认', quantity: order.qty, farm: order.farmName || (typeof order.farm === 'object' ? order.farm.name : order.farm) || '服务端工坊', priceText: priceText(order.total), status: label,
+  return { id: order.id, modelName: order.modelName || '服务端示例模型', material: order.material || '待确认', quantity: order.qty, farm: order.farmName || (typeof order.farm === 'object' ? order.farm.name : order.farm) || '服务端工坊', priceText: order.paymentState === 'UNPAID' && order.status === 'review' ? '待工程报价' : priceText(order.total), status: label,
     canAdvance: false, terminal: ['settled', 'cancelled', 'refunded'].includes(order.status), timeline: events.length ? events.map((event, index) => ({ label: event.label || event.action || '服务端事件', number: index + 1, done: true })) : [{ label, number: 1, done: true }],
     logistics: order.tracking ? '服务端沙盒单号：' + order.tracking : '尚无服务端物流信息', settlement: settlement + '；未转移真实资金',
+    priceBreakdown: order.settlementBreakdown ? '制造 ' + priceText(order.settlementBreakdown.manufacturingCents / 100) + ' · 平台费 ' + priceText(order.settlementBreakdown.platformFeeCents / 100) + ' · 运费 ' + priceText(order.settlementBreakdown.shippingCents / 100) : '',
     reviewNote: '服务端沙盒记录。物流签收与客户验收分开；验收、售后及商家履约模拟请在已登录的网页端操作。' };
 }
 async function listOrders() {

@@ -1,4 +1,4 @@
-# 共造 v0.5 客户与履约沙盒 API（/api/v2）
+# 共造 v0.6 客户与履约沙盒 API（/api/v2）
 
 本文件描述 `services/platform` 当前实现；机器可读契约为 [openapi-v2.json](./openapi-v2.json)。旧 [API_CONTRACT.md](./API_CONTRACT.md) 描述独立的 v1 内存演示，不能用作当前网页的接口说明。
 
@@ -126,11 +126,11 @@ STL 支持精确长度匹配的二进制 STL 与 ASCII STL：ASCII 限 **8 MiB**
 | `unit` | `mm/inch`；默认 `mm` |
 | `destination` | 建议省略，由保存的收货地址推导；若旧客户端提交则必须与服务端值完全一致，否则 `409 DESTINATION_MISMATCH`，没有默认 `east` |
 
-除 `destination` 外，`null` 与缺省制作参数使用对应默认值。`destination:null` 也会被拒绝，客户端不能覆盖账号地址所对应的费用区域。报价依照服务器目录与已保存的几何计算，不运行实际切片。PLA/PETG、闭合 STL、正体积、各边不超过 250 mm、指定内地区域才可进入自动流程模拟；其他情况返回 `review: true`，原因码为 `MODEL_REVIEW/PROCESS_REVIEW/DESTINATION_REVIEW/GEOMETRY_REVIEW` 的组合。
+除 `destination` 外，`null` 与缺省制作参数使用对应默认值。`destination:null` 也会被拒绝，客户端不能覆盖账号地址所对应的费用区域。报价依照服务器目录与已保存的几何计算，不运行实际切片。PLA/PETG、闭合 STL、正体积、各边不超过 250 mm、指定内地区域才可进入自动流程模拟；其他情况返回 `review: true`，原因码为 `MODEL_REVIEW/PROCESS_REVIEW/DESTINATION_REVIEW/GEOMETRY_REVIEW/PLATE_LAYOUT_REVIEW` 的组合。v0.6 会在演示 250 mm 平板的边缘余量和件间距下估算可放件数，无法形成网格时转审核。
 
 每条新报价包含 `quoteId/version/farm/modelId/modelHash/modelVersion/profileVersion/recipeVersion/issuedAt/expiresAt/fingerprint/addressRevision/addressFingerprint`、制作选项、重量/工时/排队量、费用分项及交期区间。有效期为 **15 分钟**。地址指纹为规范化地址的 SHA-256，仅用于版本一致性校验，不代表地址脱敏或真实性认证；报价本身不复制完整地址。`farm` 为对象，而订单 `farm` 为农场 ID。**报价 `material` 是材料费用（元），材料类型请读取 `materialKey`；订单 `material` 才是材料类型。**
 
-`weight/hours` 为单件估算，`productionHours` 为数量乘单件工时，`queueHours` 当前累计该农场所有 PRINTING/QUEUED 订单的完整估算工时，不扣除已生产时间。`days` 是沙盒总到货天数区间，`transitDays` 是物流天数区间，`preparationDays` 是额外备机天数。它们不是精确时间承诺或物流预测。审核报价金额为 0、`transitDays` 为空；0 代表未定价，不代表免费，审核报价的 `days` 不应展示为承诺交期。
+v0.6 的 `weight` 为单件几何估重，`hours` 为整批机时除以件数的均值；`productionHours` 为各板预计挤出机时加预热时间之和，`queueHours` 当前累计该农场所有 PRINTING/QUEUED 订单的完整估算工时，不扣除已生产时间。`days` 是沙盒总到货天数区间，`transitDays` 是物流天数区间，`preparationDays` 是额外备机天数。它们不是精确时间承诺或物流预测。审核报价金额为 0、`transitDays` 为空；0 代表未定价，不代表免费，审核报价的 `days` 不应展示为承诺交期。
 
 创建订单只需 `{"quoteId":"Q-…","demoAcknowledged":true}`。服务端核验报价存在、未过期、未使用、指纹和模型版本一致，以及当前地址版本和地址指纹一致。地址变化返回 `409 ADDRESS_CHANGED`，清空地址返回 `409 ADDRESS_REQUIRED`，必须重新补填或测算。新订单保存不可变的 `shippingAddress` 与 `addressRevision` 快照；以后修改默认地址不会改写已下单的收货信息。旧订单不补造地址，升级前的旧报价不能用于新建订单。无需提交报价指纹、金额或客户端计算结果。成功后报价只允许创建一笔订单；同键重试可取回原订单。
 
@@ -175,6 +175,28 @@ STL 支持精确长度匹配的二进制 STL 与 ASCII STL：ASCII 限 **8 MiB**
 `settlementAttempt.id` 与 `refundRequest.id` 绑定每次处理结果。失败/拒绝后新申请有新 ID，旧结果被拒；旧幂等键重放只返回原结果，不重新执行。以前的已完成申请保存至 `settlementHistory/refundHistory`。这不是支付机构验签 webhook 或会计账本。
 
 新增展示状态：`accepted`（已验收待结算）、`settling`（结算申请处理中）、`settlement_failed`、`refund_pending`、`refunded`。以独立状态字段决定动作，不能只依赖展示状态。v0.4 已结算/已退款订单仍保留原事实；不把旧记录重做结算。
+
+## v0.6 批量计价与商家收益保护
+
+`GET /api/v2/merchant/pricing` 返回当前 owner 的 3 个演示农场成本配置、最近 60 个报价的内部成本/利润测算和订单收益记录。需要先开通商家工作台；不是多个真实商家的权限系统。
+
+`POST /api/v2/merchant/pricing` 输入为 `{farmId,expectedRevision,profile,demoAcknowledged:true}`，仍需 Idempotency-Key。profile 为完整替换，只接受 OpenAPI 中列出的成本字段；`expectedRevision` 防止旧页面覆盖新配置。同值保存不增加配置版本，实际修改递增版本。新报价绑定 `pricingVersion/pricingRevision`；配置改变后旧版未用报价下单返回 `PRICING_CHANGED`，已创建订单保留旧报价及收益快照。
+
+成本输入包括 PLA/PETG 每千克采购价、设备折旧维护时价、电价/平均功率、人工时价、每单准备分钟、每板准备分钟、逐件后处理分钟、包装费和成本风险预留比例。出料速度和每板预热时间为可调整演示假设，不能当真实切片数据。`riskReserveBps` 是成本预留加成，不是统计失败率。
+
+`batch` 记录 250×250 mm 演示平板、5 mm 边缘余量和 5 mm 间距、每板最多件数、预计板数、各板件数、平面旋转候选与 `verified:false`。不验证支撑、裙边、工具头碰撞、实际切片与清台；不跨客户合板，也不会为凑板无限等待。
+
+设 C 为本批预测成本、H 为本批预计占机小时、r 为目标利润率、L 为最低订单利润、h 为最低每设备小时利润，商家制造收入为：
+
+`max(ceil(C/(1-r)), C+L, C+ceil(H*h))`，货币按整数分计算。利润率分母为商家制造收入，不能按成本加价率解释。三道底线只约束基于输入成本的预测报价，不保证实际经营利润。默认参数全为 `DEMO_ASSUMPTIONS`，不是行业平均。
+
+公开 `pricingSummary` 只含销售金额：`manufacturingCents/platformFeeCents/shippingCents/merchantReceivableCents/customerTotalCents/averageUnitManufacturingCents`。平台费按制造价 7% 向上到分另加；商家应收=制造收入+运费；客户总款=商家应收+平台费。均价四舍五入，仅供展示，不能以均价再乘件数作为扣款额。旧材料/机时/后处理字段为制造销售金额的兼容分配，不是内部成本。
+
+内部 `pricingProfiles/pricingEvidence/profileSnapshot/costBreakdown/estimatedProfitCents` 不出现在客户端 workspace、报价或订单接口，仅通过本 owner 的商家计价接口读取。客户可见平台服务费与制造价，因此这不是对交易金额的隐藏。
+
+新订单保存 `settlementBreakdown`：来源 `V0_6_QUOTE`，结算申请金额只用 `merchantReceivableCents`；退款仍以客户原始 `totalCents` 为全额。旧未结算订单可依据可校验的报价费用推导 `LEGACY_DERIVED`，缺失分项则拒绝自动结算。旧 REQUESTED 总额结算必须先记录模拟失败再重提商家净额，不能直接成功；旧 SIMULATED_SETTLED 历史记录不补造或重算。字段、金额及状态互相校验，模拟流程依然不转账。
+
+完整示例和假设见 [批量计价说明](BATCH_PRICING_V0.6.md)。
 
 ## 错误与容量
 

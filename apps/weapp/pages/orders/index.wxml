@@ -8,7 +8,7 @@
     <view class="row"><view class="section-title">{{order.modelName}}</view><view class="badge">演示</view></view>
     <view class="muted small">{{order.id}}</view><view class="divider"></view>
     <view class="row"><view><view>{{order.farm}}</view><view class="muted">{{order.material}} · {{order.quantity}} 件</view></view><view class="price">{{order.priceText}}</view></view>
-    <view class="demo-note">{{order.reviewNote}}</view>
+    <view wx:if="{{order.priceBreakdown}}" class="card-foot">{{order.priceBreakdown}}</view><view class="demo-note">{{order.reviewNote}}</view>
     <view wx:for="{{order.timeline}}" wx:key="number" wx:for-item="step" class="step {{step.done ? 'active' : ''}}"><text class="step-number">{{step.done ? '✓' : step.number}}</text>{{step.label}}</view>
     <view class="card-foot">物流：{{order.logistics}}</view><view class="card-foot">资金：{{order.settlement}}</view>
     <button wx:if="{{isLocal && order.canAdvance}}" class="secondary" data-id="{{order.id}}" bindtap="advance">模拟下一阶段 →</button>
