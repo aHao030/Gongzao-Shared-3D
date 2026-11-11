@@ -1,0 +1,17 @@
+services:
+  platform:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - platform-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+volumes:
+  platform-data:

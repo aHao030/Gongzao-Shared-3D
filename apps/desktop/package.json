@@ -1,6 +1,6 @@
 {
   "name": "@shared-fabrication/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Tauri 2 wrapper source; native binaries are not built",
   "scripts": {
@@ -9,9 +9,16 @@
     "build": "tauri build",
     "icons": "tauri icon ./app-icon.svg --output ./src-tauri/icons",
     "predev": "npm run icons",
-    "prebuild": "npm run icons"
+    "prebuild": "npm run icons",
+    "check": "node ../tools/check-platforms.mjs --target desktop",
+    "preicons": "npm run check",
+    "prepare:web": "node ../tools/prepare-web-assets.mjs",
+    "precheck": "npm run prepare:web"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

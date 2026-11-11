@@ -1,0 +1,13 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { normalizeApiBase } = require('../shared/api-client.js');
+const value = process.argv[process.argv.indexOf('--api-base') + 1];
+if (!process.argv.includes('--api-base') || !value) throw new Error('Usage: node apps/tools/configure-native-api.mjs --api-base https://your-api-host');
+const apiBase = normalizeApiBase(value);
+const baseConfig = JSON.parse(await readFile(new URL('../desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+const csp = baseConfig.app.security.csp.replace(/connect-src([^;]*)/, (_, sources) => 'connect-src' + sources + ' ' + apiBase);
+const override = { app: { security: { csp } } };
+await writeFile(new URL('../desktop/src-tauri/tauri.api.conf.json', import.meta.url), JSON.stringify(override, null, 2) + '\n');
+await writeFile(new URL('../shared/native-api.config.json', import.meta.url), JSON.stringify({ apiBase, authAdapterReady: false, serverMode: 'SERVER_SANDBOX' }, null, 2) + '\n');
+console.log('Wrote exact-origin desktop CSP override and native client configuration. Authentication remains disabled. Apply the Tauri override explicitly; these files do not connect the Web UI automatically.');

@@ -1,0 +1,44 @@
+import { DatabaseSync } from 'node:sqlite';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createWorkspace } from './core.mjs';
+import { ApiError } from './geometry.mjs';
+
+export class SQLiteStore {
+  constructor(filename) {
+    if(filename!==':memory:')fs.mkdirSync(path.dirname(path.resolve(filename)),{recursive:true});
+    this.db=new DatabaseSync(filename);this.kind='sqlite';
+    this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
+    // Explicit local initialization; hosted D1 uses tracked migrations instead.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS platform_workspaces(owner TEXT PRIMARY KEY,revision INTEGER NOT NULL,data TEXT NOT NULL,updated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS local_sessions(token_hash TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS local_model_files(owner TEXT NOT NULL,id TEXT NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(owner,id));`);
+  }
+  async load(owner) { const row=this.db.prepare('SELECT data FROM platform_workspaces WHERE owner=?').get(owner);return row?JSON.parse(row.data):createWorkspace(); }
+  async transact(owner,operation,pendingFile) {
+    for(let attempt=0;attempt<40;attempt++) {
+      const row=this.db.prepare('SELECT revision,data FROM platform_workspaces WHERE owner=?').get(owner);
+      const current=row?JSON.parse(row.data):createWorkspace();
+      const outcome=await operation(current);if(outcome.replayed)return outcome;
+      const data=JSON.stringify(outcome.workspace);
+      if(new TextEncoder().encode(data).byteLength>1024*1024)throw new ApiError(413,'WORKSPACE_CAPACITY','工作空间已达到本阶段容量，请联系维护者扩容');
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+      const result=row
+        ?this.db.prepare('UPDATE platform_workspaces SET revision=?,data=?,updated_at=? WHERE owner=? AND revision=?').run(outcome.workspace.revision,data,Date.now(),owner,row.revision)
+        :this.db.prepare('INSERT OR IGNORE INTO platform_workspaces(owner,revision,data,updated_at) VALUES (?,?,?,?)').run(owner,outcome.workspace.revision,data,Date.now());
+      if(result.changes===1){
+        if(pendingFile)this.db.prepare('INSERT OR IGNORE INTO local_model_files(owner,id,bytes) VALUES (?,?,?)').run(owner,pendingFile.id,pendingFile.bytes);
+        this.db.exec('COMMIT');return outcome;
+      }
+      this.db.exec('ROLLBACK');
+      }catch(error){this.db.exec('ROLLBACK');throw error;}
+    }
+    throw new ApiError(409,'CONCURRENT_UPDATE','并发更新冲突，请使用同一请求标识重试');
+  }
+  async putFile(owner,id,bytes) { this.db.prepare('INSERT OR IGNORE INTO local_model_files(owner,id,bytes) VALUES (?,?,?)').run(owner,id,bytes); }
+  async getFile(owner,id) { return this.db.prepare('SELECT bytes FROM local_model_files WHERE owner=? AND id=?').get(owner,id)?.bytes ?? null; }
+  saveSession(hash,owner,expires) { this.db.prepare('INSERT INTO local_sessions(token_hash,owner,expires_at) VALUES (?,?,?)').run(hash,owner,expires); }
+  getSession(hash,now=Date.now()) { return this.db.prepare('SELECT owner FROM local_sessions WHERE token_hash=? AND expires_at>?').get(hash,now)?.owner ?? null; }
+  close(){this.db.close();}
+}

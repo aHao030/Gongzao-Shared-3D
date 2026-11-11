@@ -1,0 +1,6 @@
+{
+  "apiBase": "",
+  "authAdapterReady": false,
+  "authMode": "bearer-token-from-server-verified-login",
+  "serverMode": "SERVER_SANDBOX"
+}

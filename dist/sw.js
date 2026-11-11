@@ -1,5 +1,5 @@
-const CACHE = 'gongzao-demo-v1';
-const SHELL = ['./', './index.html', './styles.css', './app.js', './icons.svg', './app-icon.svg', './manifest.webmanifest'];
+const CACHE = 'gongzao-platform-v2';
+const SHELL = ['./', './index.html', './styles.css', './app.js', './api-client.js', './icons.svg', './app-icon.svg', './manifest.webmanifest'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('gongzao-demo-') && key !== CACHE).map(key => caches.delete(key))))); });
 self.addEventListener('fetch', event => {

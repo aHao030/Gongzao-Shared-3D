@@ -1,6 +1,6 @@
 {
   "name": "@shared-fabrication/mobile",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Capacitor 8 wrapper source for the shared fabrication web demo; no binaries included",
   "scripts": {
@@ -8,7 +8,13 @@
     "add:android": "cap add android",
     "add:ios": "cap add ios",
     "open:android": "cap open android",
-    "open:ios": "cap open ios"
+    "open:ios": "cap open ios",
+    "check": "node ../tools/check-platforms.mjs --target mobile",
+    "presync": "npm run check",
+    "prepare:web": "node ../tools/prepare-web-assets.mjs",
+    "precheck": "npm run prepare:web",
+    "preadd:android": "npm run prepare:web",
+    "preadd:ios": "npm run prepare:web"
   },
   "dependencies": {
     "@capacitor/core": "^8.0.0",
@@ -19,6 +25,6 @@
     "@capacitor/cli": "^8.0.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

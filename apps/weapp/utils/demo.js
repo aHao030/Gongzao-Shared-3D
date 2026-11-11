@@ -1,6 +1,6 @@
 const SPEC_KEY = 'shared_fabrication_demo_spec_v1';
 const ORDERS_KEY = 'shared_fabrication_demo_orders_v1';
-const materials = ['PLA 塑料', 'PETG 塑料', '标准树脂', '316L 金属', 'CNC 6061 铝'];
+const materials = ['PLA 塑料', 'PETG 塑料', '工程树脂', '铝合金（金属打印）', 'CNC 铝件'];
 const basePrices = [48, 58, 68, 368, 228];
 function stepsFor(order) {
   return ['已保存演示订单'].concat(order.requiresReview ? ['待商家工程审核', '模拟工程审核通过'] : []).concat(['待商家检查材料与设备', '模拟生产中', '模拟打印 / 加工完成', '模拟取件与后处理', '模拟质检通过', '模拟物流运输', '模拟客户收货', '模拟结算完成']);

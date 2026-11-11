@@ -1,14 +1,25 @@
 {
   "name": "gongzao-shared-fabrication",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "共造共享制造平台交互原型与跨端工程起点",
-  "engines": { "node": ">=22" },
+  "description": "共造共享制造平台：持久化沙盒服务端与跨端工程",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
-    "start": "node tools/serve.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "start": "node services/platform/local.mjs",
+    "test": "node --test tests/*.test.mjs apps/tests/*.test.mjs",
     "check": "node tools/check.mjs",
-    "api:demo": "node services/api/server.mjs"
+    "api:demo": "node services/api/server.mjs",
+    "dev": "node services/platform/local.mjs",
+    "build": "node tools/build-worker.mjs",
+    "db:generate": "drizzle-kit generate",
+    "test:load": "node tools/load-smoke.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.0",
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2"
   }
 }

@@ -1,0 +1,1857 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "共造 v0.2 服务端沙盒 API",
+    "version": "0.2.0",
+    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Same origin as the application; local default http://127.0.0.1:3000."
+    }
+  ],
+  "security": [
+    {
+      "SandboxCookie": []
+    }
+  ],
+  "x-hosted-authentication": {
+    "source": "Managed hosting authentication gate supplies trusted oai-authenticated-user-id",
+    "clientHeaderIsNotLogin": true,
+    "requiresVerifiedIngress": true
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Check configured sandbox storage mode",
+        "security": [],
+        "description": "Does not require an owner when storage is configured. Hosted Worker checks DB/BUCKET before routing and may return 503.",
+        "responses": {
+          "200": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Read hosted identity or establish a local sandbox session",
+        "security": [],
+        "description": "Local GET without a valid cookie creates a 30-day HttpOnly SameSite=Strict coforge_sandbox cookie. Hosted mode still requires authentication at the managed hosting gate; this endpoint does not implement WeChat login.",
+        "responses": {
+          "200": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/workspace": {
+      "get": {
+        "operationId": "getWorkspace",
+        "summary": "Read the current owner workspace",
+        "responses": {
+          "200": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/models": {
+      "post": {
+        "operationId": "uploadModel",
+        "summary": "Save original model bytes and analyze STL geometry",
+        "description": "Raw upload, not multipart or JSON metadata. Up to 20 MiB; ASCII STL up to 8 MiB; STL up to 50000 faces. Non-STL formats are stored as review-only without CAD/image parsing. Filename is decodeURIComponent-decoded then normalized. Hash and geometry are derived server-side.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "name": "X-File-Name",
+            "in": "header",
+            "required": true,
+            "description": "encodeURIComponent(filename), including supported extension. No path separators after decoding. Normalized stored name is at most 180 characters.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "example": "cube-20mm.stl"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "Nonempty original file bytes. STL, STEP/STP, 3MF, PNG/JPG/JPEG/WebP extensions accepted."
+              },
+              "x-max-bytes": 20971520
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/models/{modelId}/download": {
+      "get": {
+        "operationId": "downloadModel",
+        "summary": "Download the current owner original uploaded file",
+        "description": "Only uploaded mdl_… IDs match this route. Built-in sample-bracket has no original file and no valid download route.",
+        "parameters": [
+          {
+            "name": "modelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^mdl_[a-zA-Z0-9_-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original bytes, private no-store. Content-Disposition uses UTF-8 filename*.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store",
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/quotes": {
+      "post": {
+        "operationId": "createQuotes",
+        "summary": "Create sandbox quotes for all current farms",
+        "description": "15-minute immutable terms. materialKey is selected material; material is RMB yuan cost. Review-only zero amounts are unpriced, not free. No real slicer is called.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create a sandbox order from one unused quote",
+        "description": "Verifies quote expiry/fingerprint/model version. Automatically sets simulated payment frozen for auto-flow orders and attempts simulated dispatch. Review-only orders stay UNPAID. No real funds or device commands.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/actions": {
+      "post": {
+        "operationId": "applyAction",
+        "summary": "Advance a sandbox device or order action",
+        "description": "All actions require explicit demo acknowledgment and state validation. This owner sandbox has no production multi-party RBAC. Device completion, delivery and acceptance are user-driven simulations.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success; all manufacturing, payment and logistics behavior is simulated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "SandboxCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "coforge_sandbox",
+        "description": "Local sandbox only. Established by GET /api/v2/session. Hosted mode uses the managed authentication gate; clients must not self-assert the internal identity header."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Unique per owner command. Reuse unchanged for retries. Same key with different normalized command payload returns 409. Replays preserve original business result and return current workspace.",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]{8,128}$"
+        },
+        "example": "quote-example-001"
+      }
+    },
+    "responses": {
+      "ApiError": {
+        "description": "Structured API error. requestId may be absent for errors from the local/Worker wrapper. See API_V2.md for codes and state gates.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "const": true,
+            "type": "boolean"
+          },
+          "version": {
+            "const": "0.2.0",
+            "type": "string"
+          },
+          "mode": {
+            "const": "SERVER_SANDBOX",
+            "type": "string"
+          },
+          "persistence": {
+            "type": "string",
+            "enum": [
+              "sqlite",
+              "d1"
+            ]
+          },
+          "realPayments": {
+            "const": false,
+            "type": "boolean"
+          },
+          "realDevices": {
+            "const": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "version",
+          "mode",
+          "persistence",
+          "realPayments",
+          "realDevices"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "SERVER_SANDBOX",
+            "type": "string"
+          },
+          "authenticated": {
+            "const": true,
+            "type": "boolean"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ]
+          },
+          "persistence": {
+            "type": "string",
+            "enum": [
+              "sqlite",
+              "d1"
+            ]
+          },
+          "capabilities": {
+            "type": "object",
+            "properties": {
+              "uploads": {
+                "const": true,
+                "type": "boolean"
+              },
+              "maxUploadBytes": {
+                "type": "integer",
+                "const": 20971520
+              },
+              "maxStlTriangles": {
+                "type": "integer",
+                "const": 50000
+              },
+              "realPayments": {
+                "const": false,
+                "type": "boolean"
+              },
+              "realDevices": {
+                "const": false,
+                "type": "boolean"
+              },
+              "wechatAuthentication": {
+                "const": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "uploads",
+              "maxUploadBytes",
+              "maxStlTriangles",
+              "realPayments",
+              "realDevices",
+              "wechatAuthentication"
+            ]
+          }
+        },
+        "required": [
+          "mode",
+          "authenticated",
+          "user",
+          "persistence",
+          "capabilities"
+        ]
+      },
+      "Model": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Uploaded model IDs start mdl_; sample-bracket is a built-in fixture with no downloadable bytes."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20971520
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "dimensions": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 0,
+                "maxItems": 0
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            ],
+            "description": "Three extents; empty for unparsed review-only formats. Model values assume mm, quote values reflect selected unit converted to mm."
+          },
+          "volume": {
+            "type": "number",
+            "minimum": 0,
+            "description": "cm3 assuming source coordinates are mm."
+          },
+          "closed": {
+            "type": "boolean"
+          },
+          "review": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "stl",
+              "step",
+              "stp",
+              "3mf",
+              "png",
+              "jpg",
+              "jpeg",
+              "webp"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "isSample": {
+            "type": "boolean"
+          },
+          "geometrySource": {
+            "type": "string",
+            "enum": [
+              "server-fixture",
+              "server-upload-parser"
+            ]
+          },
+          "unit": {
+            "const": "mm",
+            "type": "string"
+          },
+          "faceCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 50000
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "size",
+          "sha256",
+          "dimensions",
+          "volume",
+          "closed",
+          "review",
+          "format",
+          "version",
+          "createdAt",
+          "isSample",
+          "geometrySource",
+          "unit",
+          "faceCount"
+        ]
+      },
+      "Farm": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "initial": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          },
+          "multiplierBps": {
+            "type": "integer"
+          },
+          "baseCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "shippingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "device": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "east",
+              "south"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "city",
+          "device",
+          "route",
+          "origin"
+        ]
+      },
+      "Device": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "p1",
+              "p2",
+              "p3"
+            ]
+          },
+          "farm": {
+            "type": "string",
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "printing",
+              "waiting",
+              "maintenance"
+            ]
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "material": {
+            "type": "string",
+            "description": "Display capability text, e.g. PLA / PETG."
+          },
+          "loadedMaterial": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG"
+            ]
+          },
+          "profileVersion": {
+            "type": "string"
+          },
+          "recipeVersion": {
+            "type": "string"
+          },
+          "bedClear": {
+            "type": "boolean"
+          },
+          "materialReady": {
+            "type": "boolean"
+          },
+          "clearanceEpoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blockedReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "READINESS_REQUIRED",
+              "MATERIAL_MISMATCH",
+              "PROFILE_MISMATCH",
+              null
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "farm",
+          "name",
+          "route",
+          "state",
+          "orderId",
+          "material",
+          "loadedMaterial",
+          "profileVersion",
+          "recipeVersion",
+          "bedClear",
+          "materialReady",
+          "clearanceEpoch"
+        ]
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "at": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "simulated": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "time",
+          "at",
+          "simulated"
+        ]
+      },
+      "Quote": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "pattern": "^Q-"
+          },
+          "version": {
+            "const": "coforge-sandbox-v2",
+            "type": "string"
+          },
+          "mode": {
+            "const": "DEMO_ONLY",
+            "type": "string"
+          },
+          "farm": {
+            "$ref": "#/components/schemas/Farm"
+          },
+          "modelId": {
+            "type": "string",
+            "description": "Uploaded model IDs start mdl_; sample-bracket is a built-in fixture with no downloadable bytes."
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "modelHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "modelVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "profileVersion": {
+            "type": "string"
+          },
+          "recipeVersion": {
+            "type": "string"
+          },
+          "geometrySource": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ]
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "east",
+              "south",
+              "north",
+              "other"
+            ]
+          },
+          "materialKey": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "review": {
+            "type": "boolean"
+          },
+          "reviewReasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "MODEL_REVIEW",
+                "PROCESS_REVIEW",
+                "DESTINATION_REVIEW",
+                "GEOMETRY_REVIEW"
+              ]
+            }
+          },
+          "issuedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "dimensions": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 0,
+                "maxItems": 0
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            ],
+            "description": "Three extents; empty for unparsed review-only formats. Model values assume mm, quote values reflect selected unit converted to mm."
+          },
+          "volume": {
+            "type": "number",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Single-piece estimated grams; 0 for review-only quotes."
+          },
+          "hours": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Single-piece estimated hours."
+          },
+          "productionHours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "queueHours": {
+            "type": "number",
+            "minimum": 0
+          },
+          "preparationDays": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "transitDays": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxItems": 2
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "materialCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "material": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display cost; material is cost, not material type."
+          },
+          "machineCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "machine": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display amount."
+          },
+          "finishingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "finishing": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display amount."
+          },
+          "shippingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "shipping": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display amount."
+          },
+          "serviceCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "service": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display amount."
+          },
+          "totalCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "total": {
+            "type": "number",
+            "minimum": 0,
+            "description": "RMB yuan display amount."
+          },
+          "usedByOrderId": {
+            "type": "string",
+            "description": "Internal consumption marker may appear in later snapshots; not required in newly issued quotes."
+          }
+        },
+        "required": [
+          "quoteId",
+          "version",
+          "mode",
+          "farm",
+          "modelId",
+          "modelName",
+          "modelHash",
+          "modelVersion",
+          "profileVersion",
+          "recipeVersion",
+          "geometrySource",
+          "quality",
+          "qty",
+          "unit",
+          "destination",
+          "materialKey",
+          "review",
+          "reviewReasons",
+          "issuedAt",
+          "expiresAt",
+          "dimensions",
+          "volume",
+          "weight",
+          "hours",
+          "productionHours",
+          "queueHours",
+          "preparationDays",
+          "transitDays",
+          "days",
+          "fingerprint",
+          "materialCents",
+          "material",
+          "machineCents",
+          "machine",
+          "finishingCents",
+          "finishing",
+          "shippingCents",
+          "shipping",
+          "serviceCents",
+          "service",
+          "totalCents",
+          "total"
+        ],
+        "description": "Server-priced sandbox terms, valid for 15 minutes. review=true and zero amounts mean not yet priced, not free. No real slicing or commercial offer."
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^DEMO-"
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "farm": {
+            "type": "string",
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ]
+          },
+          "modelId": {
+            "type": "string",
+            "description": "Uploaded model IDs start mdl_; sample-bracket is a built-in fixture with no downloadable bytes."
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "modelHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "east",
+              "south",
+              "north",
+              "other"
+            ]
+          },
+          "totalCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "RMB fen; authoritative integer monetary amount."
+          },
+          "total": {
+            "type": "number",
+            "minimum": 0
+          },
+          "quoteId": {
+            "type": "string"
+          },
+          "quoteSnapshot": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Quote"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "estimatedWeight": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "estimatedWeight"
+                ]
+              }
+            ]
+          },
+          "productionState": {
+            "type": "string",
+            "enum": [
+              "REVIEW_REQUIRED",
+              "QUEUED",
+              "PRINTING",
+              "WAITING_REMOVAL",
+              "QC_PASSED",
+              "QC_FAILED",
+              "CANCELLED"
+            ]
+          },
+          "paymentState": {
+            "type": "string",
+            "enum": [
+              "UNPAID",
+              "SIMULATED_FROZEN",
+              "SIMULATED_RELEASED",
+              "SIMULATED_REFUNDED"
+            ]
+          },
+          "logisticsState": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "SHIPPED",
+              "DELIVERED"
+            ]
+          },
+          "acceptanceState": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACCEPTED"
+            ]
+          },
+          "settlementState": {
+            "type": "string",
+            "enum": [
+              "NOT_REQUESTED",
+              "SIMULATED_SETTLED"
+            ]
+          },
+          "disputeState": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "OPEN"
+            ]
+          },
+          "refundState": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "SIMULATED_REFUNDED"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "review",
+              "queued",
+              "printing",
+              "awaiting_pickup",
+              "qc_failed",
+              "ready_to_ship",
+              "shipped",
+              "delivered",
+              "settled",
+              "cancelled"
+            ]
+          },
+          "dispute": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix milliseconds."
+          },
+          "courier": {
+            "type": "string"
+          },
+          "tracking": {
+            "type": "string",
+            "pattern": "^DEMO-[A-Za-z0-9-]{3,27}$"
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "createdAt",
+          "farm",
+          "modelId",
+          "modelName",
+          "modelHash",
+          "material",
+          "qty",
+          "quality",
+          "unit",
+          "destination",
+          "totalCents",
+          "total",
+          "quoteId",
+          "quoteSnapshot",
+          "productionState",
+          "paymentState",
+          "logisticsState",
+          "acceptanceState",
+          "settlementState",
+          "disputeState",
+          "refundState",
+          "status",
+          "dispute",
+          "events"
+        ],
+        "description": "Independent production/payment/logistics/acceptance/settlement/dispute/refund states. status is a UI projection, not the authority for transition validation."
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Order"
+            }
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Device"
+            }
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Model"
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "orders",
+          "devices",
+          "models"
+        ],
+        "description": "Owner-private public projection. Quotes, idempotency ledger and blob keys are omitted."
+      },
+      "WorkspaceResponse": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "SERVER_SANDBOX",
+            "type": "string"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          }
+        },
+        "required": [
+          "mode",
+          "workspace"
+        ]
+      },
+      "MutationResponse": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "SERVER_SANDBOX",
+            "type": "string"
+          },
+          "physicalCommandsSent": {
+            "type": "integer",
+            "const": 0
+          },
+          "moneyTransferred": {
+            "type": "integer",
+            "const": 0
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "mode",
+          "physicalCommandsSent",
+          "moneyTransferred",
+          "workspace",
+          "replayed",
+          "requestId"
+        ]
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[^\\u0000-\\u001f]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "sample-bracket",
+            "description": "Omitted or null uses the default."
+          },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "PLA",
+                  "PETG",
+                  "ABS",
+                  "RESIN",
+                  "ALUMINUM",
+                  "CNC"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "PLA",
+            "description": "Omitted or null uses the default."
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "fine"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "standard",
+            "description": "Omitted or null uses the default."
+          },
+          "qty": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 1,
+            "description": "Omitted or null uses the default."
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "mm",
+                  "inch"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "mm",
+            "description": "Omitted or null uses the default."
+          },
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "east",
+                  "south",
+                  "north",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "east",
+            "description": "Omitted or null uses the default."
+          }
+        },
+        "required": [],
+        "description": "All fields optional. Server chooses all three sandbox farms. Client prices and geometry are not accepted as authoritative."
+      },
+      "OrderRequest": {
+        "type": "object",
+        "properties": {
+          "quoteId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[^\\u0000-\\u001f]+$"
+          },
+          "demoAcknowledged": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "quoteId",
+          "demoAcknowledged"
+        ],
+        "description": "No client fingerprint or amount required. Snapshot, expiry, one-time use and model version are checked server-side."
+      },
+      "ActionRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "reset",
+              "complete-print",
+              "prepare-device",
+              "set-device-paused",
+              "collect-and-qc",
+              "ship",
+              "deliver",
+              "accept",
+              "dispute",
+              "cancel"
+            ]
+          },
+          "demoAcknowledged": {
+            "const": true,
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[^\\u0000-\\u001f]+$"
+          },
+          "confirm": {
+            "const": "RESET_DEMO",
+            "type": "string"
+          },
+          "bedClear": {
+            "const": true,
+            "type": "boolean"
+          },
+          "materialReady": {
+            "const": true,
+            "type": "boolean"
+          },
+          "loadedMaterial": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG"
+            ]
+          },
+          "paused": {
+            "const": true,
+            "type": "boolean"
+          },
+          "partRemoved": {
+            "const": true,
+            "type": "boolean"
+          },
+          "qcPassed": {
+            "type": "boolean"
+          },
+          "carrier": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[^\\u0000-\\u001f]+$"
+          },
+          "trackingNumber": {
+            "type": "string",
+            "pattern": "^DEMO-[A-Za-z0-9-]{3,27}$"
+          },
+          "customerAccepted": {
+            "const": true,
+            "type": "boolean"
+          },
+          "open": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "demoAcknowledged"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "reset"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "confirm"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "complete-print"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "prepare-device"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "bedClear",
+                "materialReady",
+                "loadedMaterial"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "set-device-paused"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "paused"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "collect-and-qc"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "partRemoved",
+                "qcPassed",
+                "bedClear",
+                "materialReady",
+                "loadedMaterial"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "ship"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "carrier",
+                "trackingNumber"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "deliver"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "accept"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "customerAccepted"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "dispute"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "open"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "cancel"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          }
+        ],
+        "description": "Owner sandbox may perform both customer and farm actions. id targets a device for complete-print/prepare-device/set-device-paused, otherwise an order; reset needs no id. False paused is rejected; use prepare-device to resume."
+      },
+      "ModelResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "$ref": "#/components/schemas/Model"
+              }
+            },
+            "required": [
+              "model"
+            ]
+          }
+        ]
+      },
+      "QuoteResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "quotes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Quote"
+                }
+              }
+            },
+            "required": [
+              "quotes"
+            ]
+          }
+        ]
+      },
+      "OrderResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "order": {
+                "$ref": "#/components/schemas/Order"
+              }
+            },
+            "required": [
+              "order"
+            ]
+          }
+        ]
+      },
+      "ActionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "order": {
+                "$ref": "#/components/schemas/Order"
+              },
+              "device": {
+                "$ref": "#/components/schemas/Device"
+              },
+              "reset": {
+                "const": true,
+                "type": "boolean"
+              },
+              "blockedReason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "READINESS_REQUIRED",
+                  "MATERIAL_MISMATCH",
+                  "PROFILE_MISMATCH",
+                  null
+                ]
+              }
+            },
+            "required": []
+          }
+        ],
+        "description": "Contains order and/or device depending on action; reset returns reset=true. Updated workspace is always present."
+      }
+    }
+  }
+}

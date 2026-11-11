@@ -1,0 +1,12 @@
+.git
+node_modules
+data
+artifacts
+generated
+dist/server
+dist/.openai
+.env*
+.openai
+.sites-runtime
+apps
+tests

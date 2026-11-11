@@ -9,3 +9,11 @@ apps/mobile/android/
 apps/mobile/ios/
 artifacts/
 .openai/local/
+
+data/
+generated/
+dist/server/
+dist/.openai/
+.sites-runtime/
+.wrangler/
+.dev.vars*

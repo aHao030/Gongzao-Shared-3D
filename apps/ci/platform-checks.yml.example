@@ -1,0 +1,32 @@
+# Reference only. This file is not an active GitHub Actions workflow.
+# Review and copy to .github/workflows/platform-checks.yml when ready.
+name: Platform source checks
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'dist/**'
+      - '.github/workflows/platform-checks.yml'
+permissions:
+  contents: read
+concurrency:
+  group: platform-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare browser-only native assets
+        run: node apps/tools/prepare-web-assets.mjs
+      - name: Validate platform source and configuration
+        run: node apps/tools/check-platforms.mjs
+      - name: Run shared client tests
+        run: node --test apps/tests/*.test.mjs
