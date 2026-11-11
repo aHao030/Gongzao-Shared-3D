@@ -1,3 +1,4 @@
+import { createMerchantUI } from './merchant-ui.js';
 import { get, prepareMutation } from './api-client.js';
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -43,12 +44,12 @@ const farms=[
  {id:'f3',name:'拾物 3D 实验室',city:'深圳 · 广东',initial:'拾',tone:'sand',mult:.88,base:10,days:[4,7],ship:12,desc:'为独立创作者提供经济、透明的小批量生产服务。',tags:['创意设计','批量生产','OctoPrint'],device:'FDM Production 03'}
 ];
 const materials={
- PLA:{label:'PLA',color:'#dce8e1',rate:.45,process:'FDM',tip:'适合外观原型与轻载结构。尺寸与强度要求请在下单前确认。'},
- PETG:{label:'PETG',color:'#c7dbe6',rate:.58,process:'FDM',tip:'适合韧性较高的功能样件。自动生产仅使用已验证的设备工艺模板。'},
- ABS:{label:'ABS',color:'#d9dce4',rate:.68,process:'FDM',tip:'需要具备封闭腔体与通风条件的认证设备，当前仅演示审核报价。'},
- RESIN:{label:'工程树脂',color:'#e4ddd1',rate:.96,process:'树脂',tip:'树脂工艺还包括清洗、固化和后处理，需商家审核生产计划。'},
- ALUMINUM:{label:'铝合金',color:'#b8c6cf',rate:3.6,process:'金属',tip:'金属零件需确认材料牌号、公差、支撑和后处理，由工程人员审核。'},
- CNC:{label:'CNC 铝件',color:'#cbd0d6',rate:4.5,process:'CNC',tip:'请上传 STEP 与必要的工程图；装夹、刀路和加工参数需工程审核。'}
+ PLA:{label:'PLA',color:'#e5e5e5',rate:.45,process:'FDM',tip:'适合外观原型与轻载结构。尺寸与强度要求请在下单前确认。'},
+ PETG:{label:'PETG',color:'#d8d8d8',rate:.58,process:'FDM',tip:'适合韧性较高的功能样件。自动生产仅使用已验证的设备工艺模板。'},
+ ABS:{label:'ABS',color:'#dcdcdc',rate:.68,process:'FDM',tip:'需要具备封闭腔体与通风条件的认证设备，当前仅演示审核报价。'},
+ RESIN:{label:'工程树脂',color:'#dedede',rate:.96,process:'树脂',tip:'树脂工艺还包括清洗、固化和后处理，需商家审核生产计划。'},
+ ALUMINUM:{label:'铝合金',color:'#c4c4c4',rate:3.6,process:'金属',tip:'金属零件需确认材料牌号、公差、支撑和后处理，由工程人员审核。'},
+ CNC:{label:'CNC 铝件',color:'#cfcfcf',rate:4.5,process:'CNC',tip:'请上传 STEP 与必要的工程图；装夹、刀路和加工参数需工程审核。'}
 };
 const destinations={east:'中国大陆 · 华东',south:'中国大陆 · 华南',north:'中国大陆 · 华北',other:'其他地区 · 询价确认'};
 let preferences={},legacyCount=0;
@@ -76,7 +77,7 @@ function requestNotice(){
 async function connectWorkspace(){
  if(state.busy)return;
  state.connection='loading';state.error=null;render();
- try{state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();await refreshQuotes();}
+ try{state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();if(merchant.isRoute())await merchant.load(false);else await refreshQuotes();}
  catch(error){state.connection='offline';state.error=error;state.quotes=[];render();}
 }
 function selectedConfiguration(){return{modelId:state.model.id,material:state.material,quality:state.quality,qty:state.qty,unit:state.unit,destination:state.destination};}
@@ -108,29 +109,26 @@ function showModalError(error){const container=$('.modal-body');if(!container)re
 function navButton(n){return '<button data-action="nav" data-page="'+n[0]+'" class="'+(state.page===n[0]?'active':'')+'">'+I(n[1])+'<span>'+n[2]+'</span>'+(n[0]==='orders'&&state.orders.length?'<span class="count">'+state.orders.length+'</span>':'')+'</button>';}
 function render(){
  cancelAnimationFrame(animation);
- const pageName=navItems.find(n=>n[0]===state.page)?.[2]||'工作台';
- $('#app').innerHTML='<div class="drawer-scrim '+(state.menuOpen?'show':'')+'" data-action="menu-close"></div>'+
- '<aside class="sidebar '+(state.menuOpen?'open':'')+'"><a href="#" class="brand" data-action="nav" data-page="home"><img src="./icons.svg" alt=""/><div><div class="brand-name">共造</div><div class="brand-sub">共享制造平台</div></div></a>'+
- '<div class="workspace-label"><span class="workspace-dot"></span>个人创作空间<span class="muted" style="margin-left:auto">⌘</span></div><div class="nav-label">创作与交付</div><nav class="nav" aria-label="主要导航">'+navItems.slice(0,4).map(navButton).join('')+'<div class="nav-sep"></div><div class="nav-label">制造伙伴</div>'+navItems.slice(4).map(navButton).join('')+'</nav>'+
- '<div class="sidebar-bottom"><div class="help-tile"><h3 style="font-size:12px">让闲置产能，连接好创意</h3><p>查看设备接入方式，了解自动生产的准备条件。</p><button data-action="nav" data-page="catalog">了解如何接入 ↗</button></div><div class="profile"><span class="avatar">创</span><div><div style="font-size:12px">创作者</div><div class="small muted">'+(state.connection==='online'?'个人空间 · 服务端沙盒':'个人空间 · 离线只读')+'</div></div><button class="link-btn" style="margin-left:auto" data-action="settings" aria-label="演示设置">'+I('settings')+'</button></div></div></aside>'+
- '<div class="layout"><header class="topbar"><div class="breadcrumb"><button class="menu-toggle" data-action="menu" aria-label="展开导航">'+I('menu')+'</button><span>创作空间</span><span>/</span><strong>'+pageName+'</strong></div><div class="top-actions"><button class="demo-pill connection-status" data-action="reconnect" aria-label="刷新服务端连接"><i class="'+state.connection+'"></i>'+connectionLabel()+'</button><button class="icon-btn" data-action="notifications" aria-label="查看通知">'+I('bell')+'</button><span class="avatar">创</span></div></header>'+
- '<main id="main" class="main">'+requestNotice()+renderPage()+'<footer class="page-footer"><span>共造 COFORGE · 从想法，到实物。</span><span>尚未连接真实设备、支付与物流 <a href="#" data-action="about">了解演示范围 ↗</a></span></footer></main></div>'+
- '<nav class="mobile-nav" aria-label="移动导航">'+[navItems[0],navItems[2],navItems[3],navItems[4]].map(n=>'<button data-action="nav" data-page="'+n[0]+'" class="'+(state.page===n[0]?'active':'')+'">'+I(n[1])+n[2]+'</button>').join('')+'</nav>';
- if(state.page==='home'||state.page==='create')setupViewer();
+ const isMerchant=merchant.isRoute(),pageName=isMerchant?'商家工作台':state.page==='orders'?'我的订单':'开始创作';
+ const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button></nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
+ $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
+ '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
+ '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="about">了解当前范围</button></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
+ if(!isMerchant&&(state.page==='home'||state.page==='create'))setupViewer();
  if(state.busy)$$('#main button,#main input,#main select').forEach(el=>{el.disabled=true;});
- document.title=pageName+' · 共造共享制造';
+ document.title=pageName+' · 共造';
 }
 function intro(eye,title,desc,actions=''){return '<div class="page-intro"><div><div class="eyebrow">'+eye+'</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+actions+'</div>';}
 function renderPage(){switch(state.page){case'orders':return ordersPage();case'farm':return farmPage();case'network':return networkPage();case'catalog':return catalogPage();default:return workspacePage();}}
 function workspacePage(){
  const m=state.model;
  const actions='<div class="intro-actions"><button class="btn" data-action="sample">'+I('cube')+'体验示例模型</button><button class="btn primary" data-action="upload">'+I('plus')+'新建项目</button></div>';
- const label=state.page==='create'?'开始一个新的作品':'让每一个想法，成为实物。';
+ const label='让想法，成为实物。';
  const unitScale=state.unit==='inch'?25.4:1;
  const dims=m.review?'待工程确认':m.dimensions.map(n=>(Number(n)*unitScale).toFixed(1)).join(' × ');
  let qs=[...state.quotes];if(state.sort==='price')qs.sort((a,b)=>a.total-b.total);if(state.sort==='fast')qs.sort((a,b)=>a.days[0]-b.days[0]);
- return intro('YOUR NEXT CREATION',label,'上传模型，找到合适的制造伙伴。从第一份报价，到作品送达。',actions)+
- '<div class="steps"><div class="step active"><span class="step-num">1</span>上传模型</div><div class="step"><span class="step-num">2</span>工艺与报价</div><div class="step"><span class="step-num">3</span>生产与交付</div><div class="step"><span class="step-num">4</span>收货验收</div></div>'+
+ return intro('MAKE SOMETHING REAL',label,'上传你的设计。选择制造伙伴。等待作品送达。',actions)+
+
  '<div class="workspace-grid"><section class="card model-card"><div class="card-head"><h2>'+I('cube')+'模型预览</h2><span class="badge '+(m.review||m.localOnly?'amber':'teal')+'">'+(m.localOnly?'本地预览 · 未上传':m.review?'待工程审核':m.isSample?'示例模型':'服务端已解析 · 待制造校验')+'</span></div>'+
  '<div class="viewer"><div class="viewer-grid"></div><canvas id="model-canvas" aria-label="三维模型预览，可拖动旋转" tabindex="0"></canvas><div class="viewer-top"><span class="viewer-tag">'+(m.review?'FILE REVIEW':'PERSPECTIVE VIEW')+'</span><div class="viewer-tools"><button data-action="zoom-in" aria-label="放大模型">'+I('plus')+'</button><button data-action="zoom-out" aria-label="缩小模型">'+I('minus')+'</button><button data-action="reset-view" aria-label="复位视角">'+I('expand')+'</button></div></div><div class="viewer-note">'+I('cursor')+(m.review?'此文件格式仅登记，尚未生成三维预览':'拖动旋转 · 滚轮缩放 · 方向键调整视角')+'</div><span class="axis">X Y Z</span></div>'+
  '<div class="model-strip"><div class="file-icon">'+I('file')+'</div><div><div class="model-name">'+esc(m.name)+'</div><div class="file-meta">'+(m.size/1024).toFixed(0)+' KB · '+(m.review?'等待 CAD 解析':m.faceCount.toLocaleString()+' 个三角面')+'</div></div><button class="link-btn" data-action="upload">更换模型 '+I('arrow')+'</button></div>'+
@@ -139,7 +137,7 @@ function workspacePage(){
  '<div class="field"><div class="field-label">制造材料 <span>选择适合你的材料</span></div><div class="material-grid">'+Object.entries(materials).map(([k,v])=>'<button class="material-option '+(state.material===k?'selected':'')+'" data-action="material" data-material="'+k+'"><span class="swatch" style="background:'+v.color+'"></span>'+v.label+'</button>').join('')+'</div></div>'+
  (materials[state.material].process==='FDM'?'<div class="field"><div class="field-label">打印层高 <span>尺寸公差需单独确认</span></div><div class="segmented"><button data-action="quality" data-quality="standard" class="'+(state.quality==='standard'?'selected':'')+'">标准 · 0.20 mm</button><button data-action="quality" data-quality="fine" class="'+(state.quality==='fine'?'selected':'')+'">精细 · 0.12 mm</button></div></div>':'<div class="field"><div class="field-label">精度与工艺要求 <span>工程审核</span></div><div class="input" style="display:flex;align-items:center">按图纸公差与材料工艺确认</div></div>')+
  '<div class="form-row"><div class="field"><label class="field-label" for="quantity">制作数量</label><div class="stepper"><button data-action="qty-minus" aria-label="减少数量">−</button><input id="quantity" type="number" min="1" max="50" value="'+state.qty+'" aria-label="制作数量"/><button data-action="qty-plus" aria-label="增加数量">+</button></div></div><div class="field"><label class="field-label" for="unit">文件尺寸单位</label><select class="select" id="unit"><option value="mm" '+(state.unit==='mm'?'selected':'')+'>毫米 mm</option><option value="inch" '+(state.unit==='inch'?'selected':'')+'>英寸 inch</option></select></div></div>'+
- '<div class="form-row"><div class="field"><label class="field-label" for="destination">收货地区</label><select class="select" id="destination">'+Object.entries(destinations).map(([key,label])=>'<option value="'+key+'" '+(state.destination===key?'selected':'')+'>'+label+'</option>').join('')+'</select></div><div class="field"><span class="field-label">表面处理</span><div class="input" style="display:flex;align-items:center;color:#91a1aa">去支撑与基础清理</div></div></div>'+
+ '<div class="form-row"><div class="field"><label class="field-label" for="destination">收货地区</label><select class="select" id="destination">'+Object.entries(destinations).map(([key,label])=>'<option value="'+key+'" '+(state.destination===key?'selected':'')+'>'+label+'</option>').join('')+'</select></div><div class="field"><span class="field-label">表面处理</span><div class="input" style="display:flex;align-items:center;color:#9e9e9e">去支撑与基础清理</div></div></div>'+
  '<div class="hint">'+I('info')+'<span>'+materials[state.material].tip+'</span></div></div></section></div>'+
  '<section class="quote-section"><div class="section-heading"><h2>为你匹配的制造伙伴 <span class="small">3 家演示商家</span></h2><select class="sort-select" id="quote-sort" aria-label="报价排序"><option value="recommended" '+(state.sort==='recommended'?'selected':'')+'>综合推荐排序</option><option value="price" '+(state.sort==='price'?'selected':'')+'>报价从低到高</option><option value="fast" '+(state.sort==='fast'?'selected':'')+'>预计交付更快</option></select></div>'+(qs.length?'<div class="quotes">'+qs.map(quoteCard).join('')+'</div>':'<div class="card quote-placeholder" role="status">'+I(state.quoteLoading?'clock':'info')+'<div><strong>'+(state.quoteLoading?'正在获取服务端报价':state.connection==='offline'?'离线演示暂不提供报价':state.quoteError?'报价未获取成功':'正在准备报价')+'</strong><p>'+esc(state.quoteError?.message||(state.connection==='offline'?'连接服务端后再获取报价与下单。':'根据当前模型、地区与农场排队情况计算。'))+'</p></div>'+(state.quoteError?'<button class="btn tiny" data-action="retry-quotes">重试报价</button>':'')+'</div>')+'<p class="inline-note">报价由服务端按模型记录、数量、层高、排队情况和地区计算。当前为沙盒估算，尚未经过真实切片与商家确认，不保证实际价格或交期。</p></section>'+
  '<div class="assurance"><span>'+I('shield')+'设计文件按需授权</span><span>'+I('clock')+'生产进度全程可见</span><span>'+I('truck')+'收货验收后结算</span></div>';
@@ -161,7 +159,7 @@ function orderCard(o){
  const f=farms.find(f=>f.id===o.farm);
  const idx={review:0,queued:1,printing:1,awaiting_pickup:2,qc_failed:2,ready_to_ship:2,shipped:3,delivered:4,settled:5,cancelled:-1}[o.status];
  const stages=['下单','生产','质检','物流','验收','结算'];
- let action='<button class="btn tiny" data-action="nav" data-page="farm">前往农场演示 '+I('arrow')+'</button>';
+ let action='<a class="btn tiny" href="/merchant#orders">商家履约演示 '+I('arrow')+'</a>';
  let note=o.modelHash?'服务端已保存文件指纹、配置与报价快照。尚未生成真实切片文件。':'服务端已保存材料、数量、层高与报价快照。尚未生成真实切片文件。';
  if(o.status==='review'){note='文件、工艺或配送地区需审核，尚未付款或生成生产指令。';action='<button class="btn tiny" data-action="cancel-order" data-id="'+o.id+'">撤回询价</button>';}
  if(o.status==='queued'){note='等待前序任务完成、设备清台或按本单材料备机。';action='<button class="btn tiny" data-action="cancel-order" data-id="'+o.id+'">取消演示订单</button>'+action;}
@@ -176,7 +174,7 @@ function orderCard(o){
 }
 function farmPage(){
  const working=state.devices.filter(d=>d.state==='printing').length, waiting=state.devices.filter(d=>d.state==='waiting').length;
- return intro('MANUFACTURING CONSOLE','专注制造，其余交给流程。','设备通过本地网关接入。认证工艺自动执行，完成后通知取件、质检与发货。','<div class="intro-actions"><button class="btn primary" data-action="connect">'+I('plus')+'接入设备</button></div>')+
+ return intro('ORDER FULFILLMENT','生产与交付。','体验从生产、质检到发货的订单流程。以下设备和操作均为模拟。','<div class="intro-actions"><button class="btn" data-merchant-action="devices">设备清单 '+I('arrow')+'</button></div>')+
  '<div class="summary-grid">'+[['可接单设备',state.devices.filter(d=>d.state==='ready').length,'已备机 · 演示'],['正在生产',working,'已锁定生产任务 · 演示'],['等待取件',waiting,'清空打印板后恢复就绪'],['待发货订单',state.orders.filter(o=>o.status==='ready_to_ship').length,'质检通过后发货']].map(x=>'<div class="card summary-card"><span>'+x[0]+'</span><strong>'+x[1]+'</strong><p>'+x[2]+'</p></div>').join('')+'</div>'+
  '<div class="section-heading"><h2>设备工作台 <span class="small">所有设备均为模拟实例</span></h2><button class="link-btn" data-action="nav" data-page="catalog">查看兼容路线 '+I('arrow')+'</button></div><div class="device-grid">'+state.devices.map(deviceCard).join('')+'</div>'+
  '<section style="margin-top:27px"><div class="section-heading"><h2>待交付任务</h2></div>'+ (state.orders.some(o=>['ready_to_ship','qc_failed'].includes(o.status))?'<div class="order-list">'+state.orders.filter(o=>['ready_to_ship','qc_failed'].includes(o.status)).map(o=>'<article class="card"><div class="order-top"><div><div class="order-title">'+esc(o.modelName)+'</div><div class="order-sub">'+o.id+' · '+o.qty+' 件 · '+stageNames[o.status]+'</div></div>'+(o.status==='ready_to_ship'?'<button class="btn primary" data-action="ship" data-id="'+o.id+'">填写模拟运单</button>':'<span class="badge amber">待工程处理</span>')+'</div></article>').join('')+'</div>':'<div class="card empty-state" style="padding:30px"><p style="margin:0">暂无待交付任务。完成打印和质检后，订单会显示在这里。</p></div>')+'</section>';
@@ -244,7 +242,7 @@ function parseSTL(buf){
  const closed=[...edges.values()].every(n=>n===2)&&Math.abs(signed)>0;
  const step=Math.max(1,Math.ceil(tris.length/7000));return{triangles:tris.filter((_,i)=>i%step===0).map(t=>t.map(v=>v.map((n,k)=>(n-center[k])*scale))),dimensions,originalDimensions:[...dimensions],volume:Math.abs(signed)/1000,originalVolume:Math.abs(signed)/1000,faceCount:tris.length,closed};
 }
-function changePage(p){if($('.modal'))closeModal();state.page=p;state.menuOpen=false;state.search='';render();window.scrollTo({top:0,behavior:'instant'});if(['home','create'].includes(p)&&state.connection==='online'&&!state.busy)refreshQuotes();}
+function changePage(p){if(p==='farm'||p==='catalog'){location.href='/merchant'+(p==='farm'?'#orders':'#devices');return;}if($('.modal'))closeModal();state.page=p;state.menuOpen=false;state.search='';history.replaceState(null,'',p==='orders'?'/#orders':'/');render();window.scrollTo({top:0,behavior:'instant'});if(['home','create'].includes(p)&&state.connection==='online'&&!state.busy)refreshQuotes();}
 function createOrder(farmId){const q=quote(farms.find(f=>f.id===farmId));if(!q?.quoteId){toast('请先获取有效的服务端报价。');return;}return mutate('/orders',{quoteId:q.quoteId,demoAcknowledged:true},()=>{closeModal();changePage('orders');toast(q.review?'服务端已保存工程询价':'服务端已创建沙盒订单，没有实际付款');},'正在创建订单');}
 function nextQueued(d){return state.orders.find(o=>o.farm===d.farm&&o.status==='queued');}
 function readinessBody(d,removing=false){
@@ -298,11 +296,11 @@ document.addEventListener('click',e=>{
  if(a==='settle'&&order?.status==='delivered'&&!order.dispute){modal('确认作品验收','<p>请确认已收到零件，且材料、数量与质量符合约定。正式平台将在验收条件满足后向支付机构申请结算。</p><div class="detail-row"><span>演示订单金额</span><strong>'+money(order.total)+'</strong></div><p>本次操作仅模拟结算，不会产生实际资金转移。</p>','<button class="btn" data-action="close">稍后验收</button><button class="btn primary" data-action="confirm-settle" data-id="'+id+'">确认演示验收</button>');return;}
  if(a==='confirm-settle'&&order?.status==='delivered'&&!order.dispute)return actionRequest('accept',order.id,{customerAccepted:true},'服务端已记录验收及模拟结算，没有真实转账');
  if(a==='cancel-order'&&order&&['review','queued'].includes(order.status))return actionRequest('cancel',order.id,{},'服务端已取消演示订单');
- if(a==='connect'){modal('设备接入准备','<p>正式接入通过农场内的本地网关完成。当前版本仅提供交互演示，无法绑定真实设备。</p><div class="notice-list">'+[['1','登记设备','记录机型、固件、喷嘴、材料与网络方式。'],['2','验证工艺','完成试打，将切片器与参数模板锁定版本。'],['3','授权与备机','限定可用设备与接单时段，检查打印板和耗材。'],['4','自动执行','满足条件后上传、校验并启动；完成后通知取件。']].map(x=>'<div class="notice-item"><span class="avatar">'+x[0]+'</span><div><strong>'+x[1]+'</strong><p>'+x[2]+'</p></div></div>').join('')+'</div>','<button class="btn primary" data-action="close">了解了</button>');return;}
+ if(a==='connect'){if(merchant.isRoute())return merchant.discover();location.href='/merchant/login';return;}
  if(a==='settings'){modal('沙盒空间设置','<p>当前订单、报价及设备状态由服务端保存。重置会清除当前服务端沙盒的演示记录并恢复初始设备。</p><p>旧版浏览器数据不会导入，也不会被这次重置删除。尚未连接真实设备、支付或物流。</p>','<button class="btn" data-action="close">保留数据</button><button class="btn danger" data-action="reset-demo" '+(state.connection==='online'?'':'disabled')+'>重置服务端沙盒</button>');return;}
  if(a==='reset-demo')return actionRequest('reset',undefined,{confirm:'RESET_DEMO'},'服务端沙盒已重置');
  if(a==='notifications'){const events=state.orders.flatMap(o=>o.events.map(v=>({...v,name:o.modelName}))).slice(-6).reverse();modal('工作通知',events.length?'<div class="notice-list">'+events.map(v=>'<div class="notice-item"><span class="avatar">'+I('bell')+'</span><div><strong>'+esc(v.label)+'</strong><p>'+esc(v.name)+'<br/>'+esc(displayTime(v.time))+' · 模拟</p></div></div>').join('')+'</div>':'<p>暂无通知。完成演示打印后，取件提醒会出现在这里。</p>','<button class="btn" data-action="close">关闭</button>');return;}
- if(a==='about'){modal('关于这个服务端沙盒','<p>共造连接个人创作者与制造商家，目标是实现从模型、报价、自动生产到物流和收货结算的完整流程。</p><p>模型由服务端登记与校验，报价、订单和设备状态保存于服务端。原浏览器演示数据不会自动导入。断线时只读浏览，未确认成功的操作可以使用原请求重试。</p><p>页面中的商家、打印、支付、物流及结算仍为沙盒模拟，尚未连接真实生产与资金渠道。原生应用与微信小程序需独立构建、签名及平台审核。</p>','<button class="btn primary" data-action="close">知道了</button>');}
+ if(a==='about'){modal('关于这个服务端沙盒','<p>共造连接个人创作者与制造商家，目标是实现从模型、报价、自动生产到物流和收货结算的完整流程。</p><p>模型由服务端登记与校验，报价、订单和设备状态保存于服务端。原浏览器演示数据不会自动导入。断线时只读浏览，未确认成功的操作可以使用原请求重试。</p><p>报价、打印、支付、物流及结算仍为沙盒模拟。商家设备清单可通过已授权的本地网关读取真实设备状态；设备添加不会启动生产。原生应用与微信小程序需独立构建、签名及平台审核。</p>','<button class="btn primary" data-action="close">知道了</button>');}
 });
 document.addEventListener('change',e=>{
  if(state.busy){render();return;}
@@ -325,16 +323,18 @@ function setupViewer(){
 }
 function drawViewer(){
  const c=$('#model-canvas');if(!c)return;const rect=c.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);c.width=rect.width*dpr;c.height=rect.height*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);const w=rect.width,h=rect.height;ctx.clearRect(0,0,w,h);
- if(state.model.review){ctx.fillStyle='#a4b5be';ctx.font='500 16px sans-serif';ctx.textAlign='center';ctx.fillText('文件已登记，等待工程解析',w/2,h/2-5);ctx.font='11px sans-serif';ctx.fillStyle='#9aaab3';ctx.fillText('STL 格式可在此旋转预览',w/2,h/2+20);return;}
+ if(state.model.review){ctx.fillStyle='#b2b2b2';ctx.font='500 16px sans-serif';ctx.textAlign='center';ctx.fillText('文件已登记，等待工程解析',w/2,h/2-5);ctx.font='11px sans-serif';ctx.fillStyle='#a7a7a7';ctx.fillText('STL 格式可在此旋转预览',w/2,h/2+20);return;}
  const sc=Math.min(w/205,h/145)*zoom;
  const rot=p=>{const x=p[0]*Math.cos(yaw)+p[2]*Math.sin(yaw),z=-p[0]*Math.sin(yaw)+p[2]*Math.cos(yaw);return[x,p[1]*Math.cos(pitch)-z*Math.sin(pitch),p[1]*Math.sin(pitch)+z*Math.cos(pitch)];};
  const project=p=>[w/2+p[0]*sc,h/2+12-p[1]*sc];
- ctx.save();ctx.translate(w/2,h*.79);ctx.scale(1,.25);const g=ctx.createRadialGradient(0,0,0,0,0,w*.25);g.addColorStop(0,'#365c6c23');g.addColorStop(1,'#365c6c00');ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,w*.28,0,Math.PI*2);ctx.fill();ctx.restore();
+ ctx.save();ctx.translate(w/2,h*.79);ctx.scale(1,.25);const g=ctx.createRadialGradient(0,0,0,0,0,w*.25);g.addColorStop(0,'#55555523');g.addColorStop(1,'#55555500');ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,w*.28,0,Math.PI*2);ctx.fill();ctx.restore();
  const tris=mesh.map(t=>{const v=t.map(rot);return {v,z:(v[0][2]+v[1][2]+v[2][2])/3};}).sort((a,b)=>a.z-b.z);
- for(const {v} of tris){const a=v[0],b=v[1],cc=v[2],u=b.map((n,k)=>n-a[k]),vv=cc.map((n,k)=>n-a[k]);const n=[u[1]*vv[2]-u[2]*vv[1],u[2]*vv[0]-u[0]*vv[2],u[0]*vv[1]-u[1]*vv[0]],len=Math.hypot(...n)||1;const shade=.56+.28*Math.abs((n[0]*-.4+n[1]*.7+n[2]*.6)/len);const r=Math.round(130*shade+48),gg=Math.round(161*shade+52),bb=Math.round(177*shade+52);ctx.beginPath();v.map(project).forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fillStyle='rgb('+r+','+gg+','+bb+')';ctx.fill();ctx.strokeStyle='rgba(111,144,160,.12)';ctx.lineWidth=.45;ctx.stroke();}
- if(state.model.isSample){for(const x of [-22,22]){const v=project(rot([x,12,25.3]));ctx.beginPath();ctx.ellipse(v[0],v[1],4.3*sc,5*sc,0,0,Math.PI*2);ctx.fillStyle='#7b99a8';ctx.fill();ctx.strokeStyle='#c7d7dd';ctx.lineWidth=1;ctx.stroke();}}
+ for(const {v} of tris){const a=v[0],b=v[1],cc=v[2],u=b.map((n,k)=>n-a[k]),vv=cc.map((n,k)=>n-a[k]);const n=[u[1]*vv[2]-u[2]*vv[1],u[2]*vv[0]-u[0]*vv[2],u[0]*vv[1]-u[1]*vv[0]],len=Math.hypot(...n)||1;const shade=.56+.28*Math.abs((n[0]*-.4+n[1]*.7+n[2]*.6)/len);const r=Math.round(150*shade+45),gg=r,bb=r;ctx.beginPath();v.map(project).forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fillStyle='rgb('+r+','+gg+','+bb+')';ctx.fill();ctx.strokeStyle='rgba(70,70,70,.12)';ctx.lineWidth=.45;ctx.stroke();}
+ if(state.model.isSample){for(const x of [-22,22]){const v=project(rot([x,12,25.3]));ctx.beginPath();ctx.ellipse(v[0],v[1],4.3*sc,5*sc,0,0,Math.PI*2);ctx.fillStyle='#949494';ctx.fill();ctx.strokeStyle='#d4d4d4';ctx.lineWidth=1;ctx.stroke();}}
 }
 window.addEventListener('resize',()=>drawViewer());
+const merchant=createMerchantUI({icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
+if(!merchant.isRoute()&&location.hash==='#orders')state.page='orders';
 render();
 connectWorkspace();
-if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));

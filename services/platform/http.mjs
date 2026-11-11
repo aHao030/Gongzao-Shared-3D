@@ -1,3 +1,4 @@
+import { handleMerchantApi } from './merchant-http.mjs';
 import { applyCommand, getPublicWorkspace } from './core.mjs';
 import { ApiError, ensure, analyzeModel } from './geometry.mjs';
 
@@ -16,7 +17,8 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.2.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if(path.startsWith('/api/v2/merchant/')||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.3.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');

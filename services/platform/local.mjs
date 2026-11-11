@@ -32,7 +32,8 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
         const response=await handleApi(request,{store,ownerId,userLabel:'本地沙盒账户',clock});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
       }
       if(!['GET','HEAD'].includes(req.method))return reply(new Response('Method not allowed',{status:405}));
-      const name=url.pathname==='/'?'index.html':decodeURIComponent(url.pathname).slice(1);
+      const entryPaths=new Set(['/','/merchant','/merchant/','/merchant/login','/merchant/login/']);
+      const name=entryPaths.has(url.pathname)?'index.html':decodeURIComponent(url.pathname).slice(1);
       if(name.includes('/')||name.includes('\\')||!MIME[path.extname(name)])return reply(new Response('Not found',{status:404}));
       const bytes=await fs.readFile(path.join(assetsDir,name));
       return reply(new Response(req.method==='HEAD'?null:bytes,{headers:{'Content-Type':MIME[path.extname(name)],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'}}));
@@ -44,6 +45,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const args=process.argv.slice(2),option=name=>args.includes(name)?args[args.indexOf(name)+1]:undefined;
   const port=Number(option('--port')||process.env.PORT||3000),host=option('--host')||'127.0.0.1';
   if(!Number.isInteger(port)||port<1||port>65535||!['127.0.0.1','0.0.0.0'].includes(host))throw new Error('Invalid local host/port');
-  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.2 沙盒 http://127.0.0.1:${port} · SQLite 数据持久化 · 不执行真实打印或付款`));
+  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.3 沙盒 http://127.0.0.1:${port} · SQLite 数据持久化 · 不执行真实打印或付款`));
   const stop=()=>server.close(()=>{store.close();process.exit(0);});process.on('SIGTERM',stop);process.on('SIGINT',stop);
 }

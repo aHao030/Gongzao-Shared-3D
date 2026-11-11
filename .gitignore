@@ -17,3 +17,10 @@ dist/.openai/
 .sites-runtime/
 .wrangler/
 .dev.vars*
+
+# Local gateway pairing and printer credentials
+gateway.config.json
+gateway-config*.json
+*.gateway.local.json
+
+*.private.json
