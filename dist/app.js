@@ -2,6 +2,7 @@ import { createWorkflowUI } from './workflow-ui.js';
 import { createMerchantUI } from './merchant-ui.js';
 import { createOperationsUI } from './operations-ui.js';
 import { createAuthUI } from './auth-ui.js';
+import { showFieldErrors, updateFieldError, hasFieldError } from './form-feedback.js';
 import { createInternationalUI } from './international-ui.js';
 import { get, prepareMutation } from './api-client.js';
 const $ = (s, root = document) => root.querySelector(s);
@@ -106,23 +107,36 @@ async function openCustomerProfile({required=false,onboarding=false,onSaved=null
  const profile=state.customerProfile||{},address=profile.shippingAddress||{};
  const title=required?'填写收货地址':onboarding?'完善账号资料':'账号资料';
  const description=required?'测算配送费用与交付时间前，请补充收货地址。保存后会继续本次需求或费用测算。':onboarding?'欢迎来到共造。填写资料与收货地址，后续测算将自动使用。也可以稍后再填。':'收货资料仅在账号中显示。选择国家 / 地区后，地址格式与支付方案会自动调整。';
- const body='<p class="customer-form-intro">'+description+'</p><form id="customer-profile-form" class="customer-profile-form">'+customerInput('customer-display-name','称呼（选填）',profile.displayName||'',{autocomplete:'nickname',max:80,required:false,placeholder:'如何称呼你'})+'<div class="customer-form-heading"><h3>收货资料</h3><span>仅用于配送与费用测算</span></div><div id="customer-address-fields">'+international.fieldsHTML(address)+'</div><p class="customer-privacy-note">首页不会展示收货地址。海外及未覆盖地区进入工程询价，交期、运费与税费需确认。</p><div id="customer-form-error" class="error-text" role="alert"></div></form>';
+ const body='<p class="customer-form-intro">'+description+'</p><form id="customer-profile-form" class="customer-profile-form" novalidate><div id="customer-form-error" class="form-error-summary" role="alert" aria-live="polite" hidden></div>'+customerInput('customer-display-name','称呼（选填）',profile.displayName||'',{autocomplete:'nickname',max:80,required:false,placeholder:'如何称呼你'})+'<div class="customer-form-heading"><h3>收货资料</h3><span>仅用于配送与费用测算</span></div><div id="customer-address-fields">'+international.fieldsHTML(address)+'</div><p class="customer-privacy-note">首页不会展示收货地址。海外及未覆盖地区进入工程询价，交期、运费与税费需确认。</p></form>';
  const skip=!required&&!address.recipient?'<button class="btn" data-action="customer-skip">稍后填写</button>':'<button class="btn" data-action="close">取消</button>';
  modal(title,body,skip+'<button class="btn primary" data-action="customer-save">'+(required?'保存并继续':'保存资料')+I('arrow')+'</button>',true);
  customerModal={required,onboarding,onSaved};customerSaveTask=null;$('.modal')?.classList.add('customer-profile-modal');
 }
+const customerFieldIds={displayName:'customer-display-name',recipient:'customer-recipient',phone:'customer-phone',countryCode:'customer-country',province:'customer-province',city:'customer-city',district:'customer-district',addressLine:'customer-address-line',postalCode:'customer-postal-code'};
+function customerValidation(){
+ const errors=international.validateAddressFields(international.readAddress());
+ const name=$('#customer-display-name')?.value||'';
+ if(name.trim().length>80||/[\u0000-\u001f\u007f]/.test(name))errors['customer-display-name']='称呼请使用不超过 80 个字符的普通文字。';
+ return errors;
+}
+function customerServerErrors(error){
+ const errors={};for(const [key,message] of Object.entries(error.fieldErrors||{})){
+  const id=key==='countryCode'&&$('#customer-country')?.value==='OTHER'?'customer-country-code':customerFieldIds[key];
+  if(id&&typeof message==='string')errors[id]=message;
+ }return errors;
+}
+function updateCustomerField(target,blur=false){
+ const form=$('#customer-profile-form');if(!form||!target.id||!form.contains(target)||customerSaving)return;
+ if(blur||hasFieldError(form,target.id))updateFieldError(form,target.id,customerValidation()[target.id],{summaryId:'customer-form-error'});
+}
 async function saveCustomerProfile(skip=false){
  if(customerSaving||!customerModal||!$('#customer-profile-form'))return;
- const context=customerModal,form=$('#customer-profile-form'),errorNode=$('#customer-form-error');errorNode.textContent='';
+ const context=customerModal,form=$('#customer-profile-form');
  const value=id=>$('#'+id).value.trim();
  let address=state.customerProfile?.shippingAddress||null;
  if(!skip){
-  if(!form.reportValidity())return;
+  if(showFieldErrors(form,customerValidation(),{summaryId:'customer-form-error'}))return;
   address=international.readAddress();
-  const validation=international.validateAddress(address);
-  if(validation){errorNode.textContent=validation;return;}
-  if(!/^[+0-9 ()-]+$/.test(address.phone)||address.phone.replace(/\D/g,'').length<5||address.phone.replace(/\D/g,'').length>20){errorNode.textContent='请填写有效的联系电话，可包含国家区号、空格和短横线。';$('#customer-phone').focus();return;}
-
  }
  const payload={displayName:value('customer-display-name'),shippingAddress:address,setupCompleted:true},signature=JSON.stringify(payload);
  const previousRevision=state.customerProfile?.addressRevision;
@@ -142,7 +156,7 @@ async function saveCustomerProfile(skip=false){
   state.busy=false;customerSaving=false;
   if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';
   render();
-  if(customerModal===context&&$('#customer-form-error'))$('#customer-form-error').textContent=error.message+' 请检查后再次保存；输入的内容已保留。';
+  if(customerModal===context&&$('#customer-profile-form')){setModalBusy(false);showFieldErrors($('#customer-profile-form'),customerServerErrors(error),{summaryId:'customer-form-error',message:error.message+' 输入的内容已保留，请修改后再保存。'});}
  }finally{customerSaving=false;state.busy=false;setModalBusy(false);$('.modal [data-action="close"]')?.removeAttribute('disabled');}
 }
 
@@ -154,7 +168,7 @@ async function connectWorkspace(){
   state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();
   if(merchant.isRoute())await merchant.load(false);
   else await workflow.load(false,{quiet:true});
-  if(!merchant.isRoute()&&!auth.isRoute()){await refreshQuotes();if(!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}
+  if(!merchant.isRoute()&&!auth.isRoute()){await refreshQuotes();if(auth.authenticated()&&!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}
  }
  catch(error){state.connection='offline';state.error=error;state.quotes=[];render();}
 }
@@ -205,10 +219,11 @@ function render(){
  const keepQuantityFocus=state.quantityDraft!==null&&document.activeElement?.id==='quantity';
  cancelAnimationFrame(animation);
  const isMerchant=merchant.isRoute(),isAuth=auth.isRoute(),pageName=isAuth?'账号登录':isMerchant?'商家工作台':state.page==='orders'?'我的订单':state.page==='inquiries'?'需求与方案':'开始创作';
- const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="inquiries" class="'+(state.page==='inquiries'?'active':'')+'">需求与方案</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><details class="nav-more account-menu"><summary aria-label="账号菜单">账号 '+I('down')+'</summary><div class="nav-more-panel"><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料</button>'+(auth.authenticated()?'<button data-auth-action="logout">退出</button>':'<a class="header-account-link" href="/login">登录</a>')+'</div></details></nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
+ const customerAccount=auth.authenticated()?'<details class="nav-more account-menu"><summary aria-label="账号菜单">我的账号 '+I('down')+'</summary><div class="nav-more-panel"><a href="/login">用户中心</a><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料与地址</button><button data-auth-action="logout">退出登录</button></div></details>':'<a class="customer-login-link" href="/login">用户登录 / 注册</a>';
+ const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="inquiries" class="'+(state.page==='inquiries'?'active':'')+'">需求与方案</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button>'+customerAccount+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
  $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isAuth?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
  '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isAuth?auth.renderPage():isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
- '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="payment-plan">支付与结算</button> · <button class="text-link" data-action="about">了解当前范围</button></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
+ '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="payment-plan">支付与结算</button> · <button class="text-link" data-action="about">了解当前范围</button> · <a class="text-link" href="/login">用户登录与账号</a></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
  auth.restoreForm(authDraft);
  if(!isMerchant&&!isAuth&&(state.page==='home'||state.page==='create'))setupViewer();
  if(state.busy)$$('#main button,#main input,#main select').forEach(el=>{el.disabled=true;});
@@ -498,11 +513,12 @@ document.addEventListener('change',e=>{
  if(e.target.id==='quantity')commitQuantity(e.target.value);
  if(e.target.id==='quote-sort'){state.sort=e.target.value;render();}
  if(e.target.id==='unit'){state.unit=e.target.value;configurationChanged();toast('已更新尺寸单位，服务端将重新计算报价');}
- if(e.target.id==='customer-country')international.changeCountry(e.target.value);
+ if(e.target.id==='customer-country'){international.changeCountry(e.target.value);showFieldErrors($('#customer-profile-form'),{},{summaryId:'customer-form-error',focus:false});}else updateCustomerField(e.target,true);
  if(e.target.id==='payment-market')$('#payment-market-preview').innerHTML=international.paymentHTML(e.target.value);
 });
 document.addEventListener('submit',e=>{if(e.target.id==='customer-profile-form'){e.preventDefault();saveCustomerProfile(false);}});
-document.addEventListener('input',e=>{if(e.target.id==='quantity'){editQuantity(e.target.value);return;}if(e.target.id==='network-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const input=$('#network-search');input.focus();input.setSelectionRange(pos,pos);}});
+document.addEventListener('focusout',e=>updateCustomerField(e.target,true));
+document.addEventListener('input',e=>{updateCustomerField(e.target);if(e.target.id==='quantity'){editQuantity(e.target.value);return;}if(e.target.id==='network-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const input=$('#network-search');input.focus();input.setSelectionRange(pos,pos);}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){const menu=$('.nav-more[open]');if(menu){menu.open=false;menu.querySelector('summary')?.focus();}else closeModal();}if(e.key==='Tab'&&$('.modal')){const nodes=$$('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]',$('.modal'));const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
 function box(x,y,z,w,h,d){const v=[[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z],[x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]];const f=[[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[2,3,7],[2,7,6],[1,2,6],[1,6,5],[3,0,4],[3,4,7]];return f.map(t=>t.map(i=>v[i]));}
 function sampleMesh(){return [...box(-38,-26,-25,76,8,50),...box(-38,-18,17,76,52,8),...box(-38,-18,-25,8,19,42),...box(30,-18,-25,8,19,42)];}
@@ -527,7 +543,7 @@ function drawViewer(){
 }
 window.addEventListener('resize',()=>drawViewer());
 const international=createInternationalUI({get,escape:esc});
-const auth=createAuthUI({render,resetWorkspace:()=>{workflow.reset();clearQuotes();state.model={...sampleModel};state.qty=1;state.quantityDraft=null;state.unit='mm';state.inquiryMode=true;state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.resetOperations?.();merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
+const auth=createAuthUI({render,feedback:{show:showFieldErrors,update:updateFieldError,has:hasFieldError},resetWorkspace:()=>{workflow.reset();clearQuotes();state.model={...sampleModel};state.qty=1;state.quantityDraft=null;state.unit='mm';state.inquiryMode=true;state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.resetOperations?.();merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
 const workflow=createWorkflowUI({icon:I,escape:esc,render,modal,closeModal,toast,selection:()=>({model:state.model,qty:state.qty,quantityDraft:state.quantityDraft,unit:state.unit}),applyWorkspace,changePage,connection:()=>state.connection,hasAddress:hasShippingAddress,requestAddress:onSaved=>openCustomerProfile({required:true,onSaved}),merchantAuthenticated:()=>auth.authenticated(),merchantDevices:()=>merchant.state.devices});
 const merchant=createMerchantUI({operationsFactory:createOperationsUI,auth,workflow,icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
 if(!merchant.isRoute()&&['#orders','#inquiries'].includes(location.hash))state.page=location.hash.slice(1);

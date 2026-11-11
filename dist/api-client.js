@@ -1,10 +1,13 @@
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 'REQUEST_FAILED', requestId = '' } = {}) {
+  constructor(message, { status = 0, code = 'REQUEST_FAILED', requestId = '', fieldErrors = {} } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    const allowedFields = new Set(['displayName','recipient','phone','countryCode','province','city','district','addressLine','postalCode']);
+    this.fieldErrors = fieldErrors && typeof fieldErrors === 'object' && !Array.isArray(fieldErrors)
+      ? Object.fromEntries(Object.entries(fieldErrors).filter(([field, text]) => allowedFields.has(field) && typeof text === 'string' && text.length > 0 && text.length <= 300)) : {};
   }
 }
 
@@ -64,7 +67,7 @@ async function send(path, { method = 'GET', body, headers = {}, timeout = 30000 
     }
     if (!response.ok || result.error) {
       throw new ApiError(result.error?.message || '请求未成功，请重试。', {
-        status: response.status, code: result.error?.code || 'REQUEST_FAILED', requestId: result.requestId || ''
+        status: response.status, code: result.error?.code || 'REQUEST_FAILED', requestId: result.requestId || '', fieldErrors: result.error?.fieldErrors
       });
     }
     return result;

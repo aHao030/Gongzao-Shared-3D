@@ -9,6 +9,11 @@ import { handleOperationsApi, handleProductionWorkerApi } from './operations-htt
 import { unconfiguredStatus } from '../integrations/catalog.mjs';
 
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
+const CUSTOMER_FIELDS = new Set(['displayName','recipient','phone','countryCode','province','city','district','addressLine','postalCode']);
+function customerFieldErrors(error) {
+  if (!['INVALID_ADDRESS','INVALID_PROFILE','ADDRESS_INCOMPLETE'].includes(error.code) || !error.fieldErrors || typeof error.fieldErrors !== 'object' || Array.isArray(error.fieldErrors)) return {};
+  return Object.fromEntries(Object.entries(error.fieldErrors).filter(([field,message]) => CUSTOMER_FIELDS.has(field) && typeof message === 'string' && message.length > 0 && message.length <= 300));
+}
 export async function readLimited(request,limit) {
   const length=Number(request.headers.get('content-length'));
   ensure(!Number.isFinite(length)||length<=limit,413,'BODY_TOO_LARGE','请求数据超过当前大小限制');
@@ -26,7 +31,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
     if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess});
     if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.1',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.2',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
@@ -74,6 +79,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   }catch(error){
     const expected=error instanceof ApiError||['DomainError','PlatformError'].includes(error.name);
     const status=error.status||(['DomainError','PlatformError'].includes(error.name)?409:500);
-    return jsonResponse({error:{code:expected?error.code:'INTERNAL_ERROR',message:expected?error.message:'服务暂时无法处理请求，请稍后使用同一请求标识重试'},requestId},status);
+    const fieldErrors=expected?customerFieldErrors(error):{};
+    return jsonResponse({error:{code:expected?error.code:'INTERNAL_ERROR',message:expected?error.message:'服务暂时无法处理请求，请稍后使用同一请求标识重试',...(Object.keys(fieldErrors).length?{fieldErrors}:{})},requestId},status);
   }
 }

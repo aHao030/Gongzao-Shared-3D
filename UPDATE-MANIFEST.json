@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "project": "gongzao-shared-fabrication",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "files": [
     {
       "path": ".dockerignore",
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 7246,
-      "sha256": "bfba67984f566e74e82e80bbdf0ef223381cc57382dfaced6ee0e60b653eeb74"
+      "bytes": 7934,
+      "sha256": "9adcafd74703b6a45a9ee296b2d4a1eaa5cd3413fddd34c50a337cc8ab9a6880"
     },
     {
       "path": "START-WINDOWS.cmd",
@@ -365,8 +365,8 @@
     },
     {
       "path": "dist/api-client.js",
-      "bytes": 4958,
-      "sha256": "e9b3268aa36e7cca3a2a571dce98d9599ac0bab5f3dedd693f24fb5ade712b8f"
+      "bytes": 5442,
+      "sha256": "ebae0b5dbbab74b4d917190ebd06879dff3af91fe9009fad43757a2df71f537f"
     },
     {
       "path": "dist/app-icon.svg",
@@ -375,13 +375,18 @@
     },
     {
       "path": "dist/app.js",
-      "bytes": 93869,
-      "sha256": "03f51d63ca6122c16007c58162a90e6ae3ff3f51816788e087c1840ddc434130"
+      "bytes": 95459,
+      "sha256": "98e5e4226514b7accdd1c2f578d2c239d45a0a0f3cd7b522a684636435d9b437"
     },
     {
       "path": "dist/auth-ui.js",
-      "bytes": 11527,
-      "sha256": "5ef9502921d3a405fbb8687504d1f8f9a2c6be4e199c409437a645f1ce8b58c4"
+      "bytes": 14259,
+      "sha256": "26c598bebf4a154f47ec8a05467c4ab4a9c4c1ba2df4e8e71f7d0d6e506164cd"
+    },
+    {
+      "path": "dist/form-feedback.js",
+      "bytes": 3072,
+      "sha256": "fd367535361a4a574e936f4f9e492dfbc49d01f9b1c609bc69e12a4e6c4b41fa"
     },
     {
       "path": "dist/icons.svg",
@@ -395,8 +400,8 @@
     },
     {
       "path": "dist/international-ui.js",
-      "bytes": 5679,
-      "sha256": "5b127c16fb5e19503f4f4c45378b2885bfcb81ad88dff2d7553b91ed82b7d508"
+      "bytes": 8393,
+      "sha256": "edafdbaa62fa2f341a508fbd05648e0bb9bef62f63ca0c8ab9dfa36e0bf771f4"
     },
     {
       "path": "dist/manifest.webmanifest",
@@ -415,13 +420,13 @@
     },
     {
       "path": "dist/styles.css",
-      "bytes": 103423,
-      "sha256": "4f9c4f37d98fd1518a7d9cbf9fb6a612168836e6381d77ae38b45f505b4ac2d2"
+      "bytes": 105610,
+      "sha256": "25346ed0a87367f7e8fd5fbe8d1e00eecc5585deb7b05218b8f4e095faa9c5f7"
     },
     {
       "path": "dist/sw.js",
-      "bytes": 1245,
-      "sha256": "bf79d2241cad4174baf232f26fcb879f3a9e6a852658f6c8548a329afae12ec8"
+      "bytes": 1264,
+      "sha256": "73bd06d189e958458cfbaeabb61fca2d5bb5e6962bd5ccf8544d8ff971718bec"
     },
     {
       "path": "dist/workflow-ui.js",
@@ -651,12 +656,12 @@
     {
       "path": "package-lock.json",
       "bytes": 50752,
-      "sha256": "b86c79222862ca5f5d2ec00161ab7963d16e015d6cde91e7cd51ac25dff4282a"
+      "sha256": "adef4c57e58ceaea74a7ddefa5ce89ca38b60b8dbd9b80b963e37ad84c9bdad5"
     },
     {
       "path": "package.json",
       "bytes": 1060,
-      "sha256": "4b30b66407c16f6be09412c03686a82c90853707b951d69b67dc0c39d4004445"
+      "sha256": "affc15eee1918a6ce46bd96e458e9425dd01ef0252b65e2b2236244f867fab98"
     },
     {
       "path": "packages/domain/index.mjs",
@@ -860,8 +865,8 @@
     },
     {
       "path": "services/platform/customer.mjs",
-      "bytes": 5657,
-      "sha256": "e32b55da06e2ee96574f00713bc2bf508436dd0df4ac2355d7b42efeca156511"
+      "bytes": 5949,
+      "sha256": "45a0a60d080f0c7877213d175f735a5e4737665fbd8a193a8243236c2d0c7395"
     },
     {
       "path": "services/platform/geometry.mjs",
@@ -870,8 +875,8 @@
     },
     {
       "path": "services/platform/http.mjs",
-      "bytes": 8102,
-      "sha256": "41f3c4ead906edd4c27a63f4d5b3bc3744ada32ee533d270777c6a4b15cd16ca"
+      "bytes": 8794,
+      "sha256": "7ed129a1a1a29af5d9bba1e508e1b18d0a3c3432e17f61997caeade4ea79653a"
     },
     {
       "path": "services/platform/inquiries.mjs",
@@ -952,6 +957,16 @@
       "path": "start-macos.command",
       "bytes": 423,
       "sha256": "7bff4c283935d3d755349d47769c4886ba8d20512201edc0f8870bdbd7c7d02a"
+    },
+    {
+      "path": "tests/address-field-errors-v092.test.mjs",
+      "bytes": 7316,
+      "sha256": "cac85b60956d547fe93ae3713d86bd957b7956adc9b23cab265f261671c966ca"
+    },
+    {
+      "path": "tests/address-field-ui-v092.test.mjs",
+      "bytes": 6799,
+      "sha256": "cbf99623540c3dad1753b88af66438aefb4e61525846b715be5fd81da5dd1430"
     },
     {
       "path": "tests/address-http-review.test.mjs",
@@ -1092,6 +1107,11 @@
       "path": "tests/pricing-ui-v6.test.mjs",
       "bytes": 10797,
       "sha256": "935d21d0b4eca0a5ce3738bd02b33ffb4e0cf741549daed97821c96ddfcc9fe4"
+    },
+    {
+      "path": "tests/profile-feedback-v092.test.mjs",
+      "bytes": 12252,
+      "sha256": "195aa070a80f0b0393f2d209c8d162221b89a8319c06cf90aa757d46b8e7cd06"
     },
     {
       "path": "tests/quote-evidence-v5.test.mjs",
