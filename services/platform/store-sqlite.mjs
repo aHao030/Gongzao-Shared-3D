@@ -2,11 +2,26 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createWorkspace } from './core.mjs';
+import { decodeWorkspace, encodeWorkspace } from './workspace-storage.mjs';
 import { ApiError } from './geometry.mjs';
 
 export class SQLiteStore {
   constructor(filename) {
-    if(filename!==':memory:')fs.mkdirSync(path.dirname(path.resolve(filename)),{recursive:true});
+    this.pendingWrites = new Map();
+    if (filename && filename !== ':memory:') {
+      fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true, mode: 0o700 });
+      if (process.platform !== 'win32') {
+        // SQLite derives journal permissions from the database. Create new files
+        // privately without chmod'ing a pre-existing deployment's shared file.
+        try {
+          fs.closeSync(fs.openSync(filename, 'wx', 0o600));
+        } catch (error) {
+          if (error.code !== 'EEXIST') throw error;
+          // A dangling link is not an existing database to reuse.
+          fs.statSync(filename);
+        }
+      }
+    }
     this.db=new DatabaseSync(filename);this.kind='sqlite';
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
     // Explicit local initialization; hosted D1 uses tracked migrations instead.
@@ -14,14 +29,28 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS local_sessions(token_hash TEXT PRIMARY KEY,owner TEXT NOT NULL,expires_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS local_model_files(owner TEXT NOT NULL,id TEXT NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(owner,id));`);
   }
-  async load(owner) { const row=this.db.prepare('SELECT data FROM platform_workspaces WHERE owner=?').get(owner);return row?JSON.parse(row.data):createWorkspace(); }
-  async transact(owner,operation,pendingFile) {
+  async load(owner) { const row=this.db.prepare('SELECT data FROM platform_workspaces WHERE owner=?').get(owner);return row?await decodeWorkspace(row.data):createWorkspace(); }
+  async transact(owner, operation, pendingFile, { queueQuote = false } = {}) {
+    // Quotations are pure computations. Queue them per owner to avoid serializing
+    // large histories for speculative writes that would lose the revision check.
+    // Other operations, including remote inventory reads, keep their CAS flow.
+    if (!queueQuote) return this.writeWorkspace(owner, operation, pendingFile);
+    const previous = this.pendingWrites.get(owner) ?? Promise.resolve();
+    const transaction = previous.then(() => this.writeWorkspace(owner, operation, pendingFile));
+    const tail = transaction.catch(() => {});
+    this.pendingWrites.set(owner, tail);
+    try {
+      return await transaction;
+    } finally {
+      if (this.pendingWrites.get(owner) === tail) this.pendingWrites.delete(owner);
+    }
+  }
+  async writeWorkspace(owner, operation, pendingFile) {
     for(let attempt=0;attempt<40;attempt++) {
       const row=this.db.prepare('SELECT revision,data FROM platform_workspaces WHERE owner=?').get(owner);
-      const current=row?JSON.parse(row.data):createWorkspace();
+      const current=row?await decodeWorkspace(row.data):createWorkspace();
       const outcome=await operation(current);if(outcome.replayed)return outcome;
-      const data=JSON.stringify(outcome.workspace);
-      if(new TextEncoder().encode(data).byteLength>1024*1024)throw new ApiError(413,'WORKSPACE_CAPACITY','工作空间已达到本阶段容量，请联系维护者扩容');
+      const data = await encodeWorkspace(outcome.workspace);
       this.db.exec('BEGIN IMMEDIATE');
       try {
       const result=row

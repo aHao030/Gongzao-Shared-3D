@@ -73,7 +73,15 @@
         const body = response.data || {};
         const code = typeof body.error === 'string' ? body.error : (body.error && body.error.code) || body.code || 'API_ERROR';
         const message = typeof body.message === 'string' ? body.message : (body.error && body.error.message) || '服务端拒绝了本次请求。';
-        throw fail(String(code), String(message), status);
+        const error = fail(String(code), String(message), status);
+        const fields = body.error && body.error.fieldErrors;
+        if (path === '/customer/profile' && fields && typeof fields === 'object' && !Array.isArray(fields)) {
+          error.fieldErrors = {};
+          for (const field of ['displayName', ...addressKeys]) {
+            if (typeof fields[field] === 'string' && fields[field].length > 0 && fields[field].length <= 300) error.fieldErrors[field] = fields[field];
+          }
+        }
+        throw error;
       }
       if (!response.data || typeof response.data !== 'object') throw fail('INVALID_RESPONSE', '服务端未返回预期的 JSON 数据。');
       return response.data;

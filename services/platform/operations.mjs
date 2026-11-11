@@ -35,10 +35,28 @@ function assertFreshProfile(s, j) {
   const p = find(s.profiles, j.profileId, 'PROFILE');
   ensure(p.enabled && p.revision === j.profileRevision, 409, 'PROFILE_CHANGED', '工艺配置已更新，请重新切片');
 }
-function orderAllowed(order) {
+function orderAllowed(order, recordingExistingWork = false) {
   ensure(order.paymentState === 'SIMULATED_FROZEN', 409, 'PAYMENT_NOT_READY', '当前生产演练只接受已模拟付款的订单');
-  ensure(order.disputeState !== 'OPEN' && !['REQUESTED', 'SIMULATED_REFUNDED'].includes(order.refundState), 409, 'ORDER_BLOCKED', '订单存在退款或争议，不能继续生产');
+  if (!recordingExistingWork) ensure(order.disputeState !== 'OPEN' && !['REQUESTED', 'SIMULATED_REFUNDED'].includes(order.refundState), 409, 'ORDER_BLOCKED', '订单存在退款或争议，不能继续生产');
   ensure(order.logisticsState === 'NONE' && order.acceptanceState === 'PENDING', 409, 'ORDER_ALREADY_FULFILLED', '已发货或已验收的订单不能重新生产');
+}
+
+export function orderSliceConstraints(order, workspace) {
+  const proposal = order.proposalSnapshot;
+  const quote = order.quoteSnapshot;
+  const evidence = proposal?.sliceEvidence ?? quote?.sliceEvidence;
+  // Early quick orders stored the capability reference but did not copy its device list.
+  let capability = order.capabilitySnapshot ?? proposal?.capabilitySnapshot ?? quote?.capabilitySnapshot;
+  if (!capability && quote?.capabilityId) {
+    capability = workspace?.manufacturingCapabilities?.find(item =>
+      item.id === quote.capabilityId && item.revision === quote.capabilityRevision);
+  }
+  return {
+    modelVersion: proposal?.modelVersion ?? quote?.modelVersion ?? order.modelVersion ?? null,
+    frozenSliceJobId: evidence?.jobId ?? null,
+    capabilityUnverified: Boolean(quote?.capabilityId && !Array.isArray(capability?.deviceIds)),
+    allowedDeviceIds: capability?.deviceIds ?? []
+  };
 }
 
 export function getOperations(workspace, now = Date.now()) {
@@ -49,7 +67,7 @@ export function getOperations(workspace, now = Date.now()) {
     spools: s.spools.map(x => ({ ...copy(x), availableGrams: x.remainingGrams - x.reservedGrams })),
     profiles: copy(s.profiles), jobs: s.jobs.map(publicJob), productions: copy(s.productions), schedule: copy(s.schedule), events: copy(s.events),
     models: (workspace.models ?? []).map(m => ({ id: m.id, name: m.name, format: m.format, sha256: m.sha256, isSample: !!m.isSample, dimensions: copy(m.dimensions), review: m.review })),
-    orders: (workspace.orders ?? []).map(o => ({ id: o.id, modelId: o.modelId, modelName: o.modelName, farmId: o.farm, quantity: o.qty, material: o.material, quality: o.quality ?? 'standard', unit: o.unit, paymentState: o.paymentState, productionState: o.productionState, status: o.status })),
+    orders: (workspace.orders ?? []).map(o => ({ id: o.id, modelId: o.modelId, modelName: o.modelName, modelHash: o.modelHash, ...copy(orderSliceConstraints(o, workspace)), farmId: o.farm, quantity: o.qty, material: o.material, quality: o.quality ?? 'standard', unit: o.unit, paymentState: o.paymentState, productionState: o.productionState, status: o.status })),
     devices: [...(workspace.devices ?? []).map(d => ({ id: d.id, name: d.name, farmId: d.farm, source: 'demo' })), ...(workspace.merchant?.devices ?? []).map(d => ({ id: d.id, name: d.name, farmId: null, source: d.source }))],
     summary: { spoolCount: s.spools.length, availableGrams: s.spools.filter(x => x.mode === 'SANDBOX').reduce((n, x) => n + x.remainingGrams - x.reservedGrams, 0), queuedJobs: s.jobs.filter(x => x.status === 'QUEUED').length, runningJobs: s.jobs.filter(x => x.status === 'LEASED' && x.leaseUntil > now).length, completedJobs: s.jobs.filter(x => x.status === 'COMPLETED').length, activeProductions: s.productions.filter(activeProduction).length, needsReview: s.productions.filter(x => ['UNKNOWN', 'WAITING_REMOVAL', 'QC_FAILED'].includes(x.status)).length },
   };
@@ -92,7 +110,6 @@ async function queueJob(w, s, p, now, idFactory) {
   const mode = p.mode ?? 'WORKER';
   ensure(['WORKER', 'SANDBOX'].includes(mode), 400, 'INVALID_JOB_MODE', '任务模式无效');
   if (mode === 'SANDBOX') ack(p);
-  ensure(s.jobs.length < 180, 409, 'JOB_CAPACITY', '当前最多保存 180 个制造任务');
   let terms;
   if (p.kind === 'SCHEDULE') {
     terms = { kind: p.kind, mode, modelId: null, modelHash: null, modelVersion: null, profileId: null, profileRevision: null, configSnapshot: scheduleSnapshot(s, now) };
@@ -109,6 +126,7 @@ async function queueJob(w, s, p, now, idFactory) {
   const inputHash = await digest(terms);
   const existing = s.jobs.find(x => x.inputHash === inputHash && ['QUEUED', 'LEASED', 'COMPLETED'].includes(x.status));
   if (existing) return { job: publicJob(existing), alreadyQueued: true };
+  ensure(s.jobs.length < 180, 409, 'JOB_CAPACITY', '当前最多保存 180 个制造任务');
   const job = { id: 'job-' + idFactory(), ...terms, inputHash, status: 'QUEUED', attempt: 0, createdAt: now, updatedAt: now, result: null, error: null };
   if (mode === 'SANDBOX') {
     if (job.kind === 'SCHEDULE') job.result = basicSchedule(job.configSnapshot);
@@ -205,11 +223,20 @@ export function estimateSliceEconomics(workspace, sliceJob, costCentsPerKg, froz
   return { currency: 'CNY', provenance: r.provenance, pricingRevision: p.revision, durationSeconds: r.durationSeconds, materialGrams: r.materialGrams, costBreakdown: { ...costs, riskReserveCents }, estimatedCostCents, suggestedManufacturingCents, estimatedProfitCents: suggestedManufacturingCents - estimatedCostCents, targetMarginBps: p.targetMarginBps, minimumProfitCents, estimatedOnly: true };
 }
 
-export function findSliceEvidence(workspace, { modelId, modelHash, qty, unit, material, farmId, quality = 'standard' }) {
+export function findSliceEvidence(workspace, { modelId, modelHash, modelVersion, qty, unit, material, farmId, quality = 'standard', deviceIds }) {
   const s = stateOf(workspace);
-  const job = [...s.jobs].reverse().find(j => j.kind === 'SLICE_MODEL' && j.status === 'COMPLETED' && j.mode === 'WORKER' && j.result?.provenance === 'WORKER_OBSERVED' && j.modelId === modelId && j.modelHash === modelHash && j.quantity === qty && j.unit === unit && j.configSnapshot.material === material && j.configSnapshot.farmId === farmId && j.configSnapshot.quality === quality && s.profiles.some(p => p.id === j.profileId && p.enabled && p.revision === j.profileRevision));
+  const version = modelVersion ?? workspace.models?.find(model => model.id === modelId)?.version ?? 1;
+  const job = [...s.jobs].reverse().find(candidate => {
+    if (candidate.kind !== 'SLICE_MODEL' || candidate.status !== 'COMPLETED' || candidate.mode !== 'WORKER' || candidate.result?.provenance !== 'WORKER_OBSERVED') return false;
+    if (candidate.modelId !== modelId || candidate.modelHash !== modelHash || (candidate.modelVersion ?? 1) !== version || candidate.quantity !== qty || candidate.unit !== unit) return false;
+    const config = candidate.configSnapshot;
+    if (config.material !== material || config.farmId !== farmId || config.quality !== quality || (deviceIds?.length && !deviceIds.includes(config.deviceId))) return false;
+    return s.profiles.some(profile => profile.id === candidate.profileId && profile.enabled && profile.revision === candidate.profileRevision);
+  });
   if (!job) return null;
-  try { return { job: publicJob(job), economics: estimateSliceEconomics(workspace, job) }; }
+  const { profileSha256, artifactHash, engineVersion, provenance } = job.result;
+  const evidence = { jobId: job.id, inputHash: job.inputHash, modelHash: job.modelHash, profileId: job.profileId, profileRevision: job.profileRevision, profileSha256, artifactHash, engineVersion, provenance };
+  try { return { job: publicJob(job), economics: estimateSliceEconomics(workspace, job), evidence }; }
   catch { return null; }
 }
 
@@ -239,6 +266,13 @@ function createProduction(w, s, p, now, idFactory) {
   ensure(job.kind === 'SLICE_MODEL' && job.status === 'COMPLETED' && job.result, 409, 'SLICE_REQUIRED', '请先完成对应模型的切片估算');
   assertFreshProfile(s, job);
   ensure(job.modelHash === order.modelHash && job.modelId === order.modelId && job.quantity === order.qty && job.unit === order.unit && job.configSnapshot.material === order.material && job.configSnapshot.farmId === order.farm && job.configSnapshot.quality === (order.quality ?? 'standard'), 409, 'SLICE_ORDER_MISMATCH', '切片模型、数量、单位、材料、层高或产线与订单不匹配');
+  const {modelVersion, frozenSliceJobId, allowedDeviceIds, capabilityUnverified} = orderSliceConstraints(order, w);
+  ensure(!capabilityUnverified, 409, 'ORDER_CAPABILITY_UNVERIFIED', '无法核对旧订单确认时的设备范围，请与客户重新确认制造方案');
+  ensure(modelVersion === null || (job.modelVersion ?? 1) === modelVersion, 409, 'SLICE_ORDER_MISMATCH', '模型版本与订单已确认的版本不一致');
+  ensure(!frozenSliceJobId || job.id === frozenSliceJobId, 409, 'SLICE_ORDER_MISMATCH', '请使用订单确认的原始切片结果');
+  ensure(!allowedDeviceIds.length || allowedDeviceIds.includes(job.configSnapshot.deviceId), 409, 'SLICE_ORDER_MISMATCH', '切片设备不在本单已确认的设备范围内');
+  const targetDevice = deviceOf(w, job.configSnapshot.deviceId);
+  ensure(targetDevice && targetDevice.state !== 'maintenance', 409, 'DEVICE_UNAVAILABLE', '设备不存在或已暂停接单，请先恢复设备再建立生产台账');
   const spool = find(s.spools, p.spoolId, 'SPOOL');
   ensure(spool.mode === 'SANDBOX', 409, 'SIMULATION_INVENTORY_REQUIRED', '生产演练只使用演示库存，不扣减真实耗材');
   ensure(spool.material === order.material, 409, 'MATERIAL_MISMATCH', '耗材与订单材料不匹配');
@@ -267,7 +301,8 @@ function release(s, production, now) {
 function productionCommand(w, s, type, p, now, idFactory) {
   ack(p); const production = find(s.productions, p.productionId, 'PRODUCTION'), order = find(w.orders, production.orderId, 'ORDER');
   ensure(production.mode === 'SIMULATED', 409, 'REAL_DISPATCH_DISABLED', '此版本不能通过运营按钮控制真实设备');
-  if (type !== 'cancel-production') orderAllowed(order);
+  const recordingExistingWork = ['finish-production', 'qc-production', 'reconcile-production'].includes(type);
+  if (type !== 'cancel-production') orderAllowed(order, recordingExistingWork);
   const job = find(s.jobs, production.sliceJobId, 'JOB');
   if (type === 'readiness') {
     ensure(['AWAITING_READINESS', 'READY'].includes(production.status), 409, 'INVALID_PRODUCTION_STATE', '当前任务不能确认备机'); assertFreshProfile(s, job);
@@ -279,6 +314,7 @@ function productionCommand(w, s, type, p, now, idFactory) {
     ensure(!s.productions.some(x => x.id !== production.id && x.deviceId === production.deviceId && ['PRINTING', 'DISPATCHING', 'UNKNOWN', 'WAITING_REMOVAL'].includes(x.status)), 409, 'DEVICE_OCCUPIED', '该设备正在生产或等待取件、对账');
     const device = deviceOf(w, production.deviceId);
     ensure(device, 409, 'DEVICE_NOT_FOUND', '已关联设备不存在');
+    ensure(device.state !== 'maintenance', 409, 'DEVICE_UNAVAILABLE', '设备已暂停接单，请先恢复设备');
     ensure(!device.orderId || device.orderId === order.id, 409, 'DEVICE_OCCUPIED', '该设备已被另一订单占用');
     production.status = 'PRINTING'; production.startedAt = now; production.attempts.push({ id: 'attempt-' + idFactory(), sequence: production.attempts.length + 1, state: 'SIMULATED_STARTED', at: now });
     order.productionState = 'PRINTING'; order.status = 'printing'; order.deviceId = production.deviceId;
@@ -310,6 +346,7 @@ function productionCommand(w, s, type, p, now, idFactory) {
     production.reconciliation = { observedState: p.observedState, note: p.note, at: now };
     production.status = p.observedState === 'not-started' ? 'AWAITING_READINESS' : 'PRINTING'; production.readiness = null;
   } else fail('UNKNOWN_COMMAND', '未知生产命令', 400);
+  if (recordingExistingWork && order.refundState === 'REQUESTED') order.status = 'refund_pending';
   production.updatedAt = now; s.schedule = null; record(s, type.toUpperCase(), production.id, now);
   if (!['readiness', 'cancel-production', 'reconcile-production'].includes(type)) (order.events ??= []).push({ label: '生产中心 · ' + ({ 'dispatch-production': '已开始模拟打印', 'finish-production': '模拟打印完成，等待取件质检', 'qc-production': p.passed ? '已取件清台，模拟质检通过' : '已取件清台，模拟质检不通过' }[type]), time: new Date(now).toISOString(), at: now, simulated: true });
   return { production: copy(production) };

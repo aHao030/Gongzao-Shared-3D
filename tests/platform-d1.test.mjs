@@ -211,3 +211,22 @@ test('D1 adapter contract: missing trusted identity returns 401 even with forged
   assert.equal(health.body.realPayments, false);
   assert.equal(health.body.realDevices, false);
 });
+
+test('D1 adapter restores compact quote history on a fresh store and preserves concurrent updates and owner isolation', async t => {
+  const { db, bucket, store } = harness(t);
+  await store.transact(ownerA, prior => ({
+    workspace: { ...prior, revision: 1, quotes: [{ quoteId: 'Q-saved', note: '批量测算'.repeat(100000) }] }
+  }));
+  const reopened = new D1Store(db, bucket);
+  const saved = await reopened.load(ownerA);
+  assert.equal(saved.quotes[0].note.length, 400000);
+  assert.equal((await reopened.load(ownerB)).quotes.length, 0);
+  db.holdNextRevisionReads(2);
+  await Promise.all(['left', 'right'].map(key => reopened.transact(ownerA, prior => ({
+    workspace: { ...prior, [key]: true, revision: prior.revision + 1 }
+  }))));
+  const final = await reopened.load(ownerA);
+  assert.deepEqual(final.quotes, saved.quotes);
+  assert.equal(final.revision, 3);
+  assert.ok(final.left && final.right);
+});

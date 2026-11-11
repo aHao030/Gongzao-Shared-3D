@@ -51,7 +51,7 @@ test('refund and dispute overlays are visible even when a legacy overall status 
     { id: 'review', status: 'review', paymentState: 'UNPAID', settlementState: 'NOT_REQUESTED' }
   ]);
   assert.equal(views[0].status, '退款申请处理中'); assert.match(views[0].settlement, /暂停结算/);
-  assert.equal(views[1].status, '争议处理中'); assert.match(views[1].settlement, /暂停结算/);
+  assert.equal(views[1].status, '已签收待验收'); assert.equal(views[1].disputeNote, '争议处理中'); assert.match(views[1].settlement, /暂停结算/);
   assert.equal(views[2].terminal, true); assert.match(views[2].settlement, /模拟退款完成/);
   assert.match(views[3].settlement, /尚未付款/);
 });

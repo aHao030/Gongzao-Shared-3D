@@ -20,6 +20,6 @@ Page({
     if (this.data.busy) return;
     if (!this.data.sampleSelected) return wx.showToast({ title: '请先选择示例模型', icon: 'none' });
     try { service.saveSpec(this.data.materialIndex, this.data.quantity); wx.switchTab({ url: '/pages/quotes/index' }); }
-    catch (_) { wx.showToast({ title: '数量请输入 1–100 的整数', icon: 'none' }); }
+    catch (error) { wx.showToast({ title: error.message === 'INVALID_SPEC' ? '请重新选择材料和数量。' : error.message, icon: 'none' }); }
   }
 });

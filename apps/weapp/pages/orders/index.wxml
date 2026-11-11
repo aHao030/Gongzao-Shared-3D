@@ -5,8 +5,8 @@
   <view wx:if="{{error}}" class="card"><view class="danger">{{error}}</view><button class="secondary" bindtap="refresh">重试获取订单</button></view>
   <view wx:if="{{!loading && !error && orders.length === 0}}" class="card empty"><view class="empty-title">还没有演示订单</view><view class="muted">选择模型与工坊，体验完整交付流程。</view><button class="primary" bindtap="goUpload">创建演示订单</button></view>
   <view wx:for="{{orders}}" wx:key="id" wx:for-item="order" class="card">
-    <view class="row"><view class="section-title">{{order.modelName}}</view><view class="badge">演示</view></view>
-    <view class="muted small">{{order.id}}</view><view class="divider"></view>
+    <view class="row"><view class="section-title">{{order.modelName}}</view><view class="badge">{{order.status}}</view></view>
+    <view wx:if="{{order.disputeNote}}" class="card-foot">{{order.disputeNote}}</view><view class="muted small">{{order.id}}</view><view class="divider"></view>
     <view class="row"><view><view>{{order.farm}}</view><view class="muted">{{order.material}} · {{order.quantity}} 件</view></view><view class="price">{{order.priceText}}</view></view>
     <view wx:if="{{order.priceBreakdown}}" class="card-foot">{{order.priceBreakdown}}</view><view class="demo-note">{{order.reviewNote}}</view>
     <view wx:for="{{order.timeline}}" wx:key="number" wx:for-item="step" class="step {{step.done ? 'active' : ''}}"><text class="step-number">{{step.done ? '✓' : step.number}}</text>{{step.label}}</view>

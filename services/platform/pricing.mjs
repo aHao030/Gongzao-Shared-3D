@@ -1,7 +1,7 @@
 import { farms } from './catalog.mjs';
 import { ensure } from './geometry.mjs';
 
-export const PRICING_VERSION = 'batch-margin-sandbox-v1';
+export const PRICING_VERSION = 'batch-margin-sandbox-v2';
 const copy = value => structuredClone(value);
 const ceil = n => Math.ceil(n);
 const safeMoney = n => Number.isSafeInteger(n) && n >= 0;
@@ -63,16 +63,19 @@ export function savePricingProfile(workspace, payload, now) {
 
 // Conservative axis-aligned grid demonstration; it does not inspect supports,
 // brim, gantry collisions, surface contact, or produce any machine toolpath.
-export function estimateBatch(dimensions, quantity) {
+export function estimateBatch(dimensions, quantity, maxDimensions = [240, 240, 250]) {
   if (!Array.isArray(dimensions) || dimensions.length !== 3 || !Number.isInteger(quantity) || quantity < 1 || quantity > 50) return null;
-  const [x, y, z] = dimensions, usable = 240, gap = 5;
-  if (![x, y, z].every(n => Number.isFinite(n) && n > 0) || z > 250) return null;
-  const layout = (w, h) => Math.floor((usable + gap) / (w + gap)) * Math.floor((usable + gap) / (h + gap));
+  if (!Array.isArray(maxDimensions) || maxDimensions.length !== 3 || !maxDimensions.every(n => Number.isFinite(n) && n > 0)) return null;
+  const [x, y, z] = dimensions;
+  const spacingMm = 5, edgeMarginMm = 5, plateSizeMm = [250, 250];
+  const usableSizeMm = plateSizeMm.map((side, index) => Math.min(side - 2 * edgeMarginMm, maxDimensions[index]));
+  if (!dimensions.every(n => Number.isFinite(n) && n > 0) || z > Math.min(250, maxDimensions[2])) return null;
+  const layout = (w, h) => Math.floor((usableSizeMm[0] + spacingMm) / (w + spacingMm)) * Math.floor((usableSizeMm[1] + spacingMm) / (h + spacingMm));
   const normal = layout(x, y), rotated = layout(y, x), capacityPerPlate = Math.max(normal, rotated);
   if (!Number.isSafeInteger(capacityPerPlate) || capacityPerPlate < 1) return null;
   const partsPerPlate = [];
   for (let left = quantity; left > 0; left -= capacityPerPlate) partsPerPlate.push(Math.min(left, capacityPerPlate));
-  return { method: 'BOUNDING_BOX_GRID_ESTIMATE', plateSizeMm: [250, 250], spacingMm: gap, edgeMarginMm: 5, capacityPerPlate, plateCount: partsPerPlate.length, partsPerPlate, rotationDegrees: rotated > normal ? 90 : 0, verified: false, mixedOrders: false, waitForOtherOrders: false };
+  return { method: 'BOUNDING_BOX_GRID_ESTIMATE', plateSizeMm, usableSizeMm, spacingMm, edgeMarginMm, capacityPerPlate, plateCount: partsPerPlate.length, partsPerPlate, rotationDegrees: rotated > normal ? 90 : 0, verified: false, mixedOrders: false, waitForOtherOrders: false };
 }
 export function estimateBatchPrice({ profile, batch, singleWeightGrams, quantity, quality }) {
   const hoursByPlate = batch.partsPerPlate.map(count => singleWeightGrams * count / profile.estimatedThroughputGramsPerHour * (quality === 'fine' ? 1.55 : 1) + profile.warmupMinutesPerPlate / 60);
@@ -124,7 +127,15 @@ export function getMerchantPricing(workspace) {
     orderEconomics: workspace.orders.map(order => {
       let breakdown = order.settlementBreakdown ?? null;
       if (!breakdown && order.paymentState !== 'UNPAID' && order.settlementState !== 'SIMULATED_SETTLED') { try { breakdown = settlementBreakdown(order); } catch {} }
-      return { orderId: order.id, farmId: order.farm, modelName: order.modelName, quantity: order.qty, status: order.status, settlementState: order.settlementState, refundState: order.refundState, settlementBreakdown: copy(breakdown), economics: evidence[order.quoteId] ? copy(evidence[order.quoteId]) : null, legacyUnsplit: order.settlementState === 'SIMULATED_SETTLED' && !order.settlementBreakdown };
+      let economics = evidence[order.quoteId] ?? null;
+      if (!economics && order.proposalSnapshot?.source === 'MERCHANT_REVIEW') {
+        const offer = order.proposalSnapshot;
+        const frozen = (workspace.proposalEconomics ?? []).find(item => item.inquiryId === order.inquiryId && item.proposalRevision === offer.revision);
+        if (frozen && safeMoney(frozen.estimatedCostCents) && safeMoney(frozen.estimatedProfitCents) && safeMoney(offer.manufacturingCents) && offer.manufacturingCents > 0) {
+          economics = { ...frozen, productionHours: frozen.productionHoursForFloor, estimatedMarginBps: ratioFloor(frozen.estimatedProfitCents, 10000, offer.manufacturingCents) };
+        }
+      }
+      return { orderId: order.id, farmId: order.farm, modelName: order.modelName, quantity: order.qty, status: order.status, settlementState: order.settlementState, refundState: order.refundState, settlementBreakdown: copy(breakdown), economics: copy(economics), legacyUnsplit: order.settlementState === 'SIMULATED_SETTLED' && !order.settlementBreakdown };
     }),
   };
 }

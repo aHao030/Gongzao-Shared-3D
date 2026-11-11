@@ -68,3 +68,28 @@ test('auth reset prevents late merchant reads restoring prior account inquiries 
 test('auth reset prevents late inquiry mutations reopening a prior account order',async()=>{
  let resolve;const h=harness({execute:()=>new Promise(r=>{resolve=r;})});h.ui.state.inquiries=[inquiry];const pending=h.click('accept-inquiry',{inquiryId:inquiry.id,proposalRevision:'2'});await new Promise(setImmediate);h.ui.reset();resolve({inquiry:{...inquiry,status:'ORDERED'}});await pending;assert.equal(h.ui.state.inquiries.length,0);assert.equal(h.pages.length,0);
 });
+
+test('an already superseded proposal offers a fresh read instead of replaying invalid confirmation', async () => {
+ const changed=Object.assign(new Error('方案已更新'),{code:'PROPOSAL_CHANGED'});
+ const h=harness({execute:async()=>{throw changed;}});h.ui.state.inquiries=[inquiry];
+ await h.click('accept-inquiry',{inquiryId:inquiry.id,proposalRevision:'2'});
+ assert.equal(h.ui.state.retry,null);
+ assert.equal(h.ui.state.error.code,'PROPOSAL_CHANGED');
+ await h.click('refresh');
+ assert.equal(h.sent.length,1);
+ assert.equal(h.ui.state.error,null);
+ assert.equal(h.ui.state.inquiries.length,0);
+});
+
+test('invalid quantity submission focuses the field without a second stale toast', async () => {
+ const h=harness();await h.ui.load();h.ui.state.draft.dimensionsConfirmed=true;
+ h.selected.quantityDraft='51';
+ let focused=false;
+ h.nodes['#quantity']={setAttribute(){},focus(){focused=true;}};
+ h.nodes['#quantity-error']={textContent:''};
+ await h.click('submit-inquiry');
+ assert.equal(focused,true);
+ assert.match(h.nodes['#quantity-error'].textContent,/1–50/);
+ assert.equal(h.toasts.length,0);
+ assert.equal(h.sent.length,0);
+});

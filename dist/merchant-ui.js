@@ -149,8 +149,15 @@ export function createMerchantUI({ operationsFactory, workflow, icon, escape, re
   }
   function economicsDetails(e){
     if(!e)return '<p class="pricing-muted">旧订单没有成本快照，无法反推真实利润。</p>';
-    const labor=Number.isFinite(e.costBreakdown.laborCents)?[['准备与后处理人工',e.costBreakdown.laborCents]]:[['每单准备人工',e.costBreakdown.orderSetupCents],['换板准备人工',e.costBreakdown.plateSetupCents],['逐件后处理人工',e.costBreakdown.finishingCents]];
-    const parts=[['材料',e.costBreakdown.materialCents],['设备折旧与维护',e.costBreakdown.machineCents],['电费',e.costBreakdown.electricityCents],...labor,['包装',e.costBreakdown.packagingCents],['成本风险预留',e.costBreakdown.riskReserveCents]].filter(([,value])=>Number.isFinite(value));
+    const costs = e.costBreakdown;
+    let parts;
+    if (costs) {
+      const labor = Number.isFinite(costs.laborCents) ? [['准备与后处理人工', costs.laborCents]] : [['每单准备人工', costs.orderSetupCents], ['换板准备人工', costs.plateSetupCents], ['逐件后处理人工', costs.finishingCents]];
+      parts = [['材料', costs.materialCents], ['设备折旧与维护', costs.machineCents], ['电费', costs.electricityCents], ...labor, ['包装', costs.packagingCents], ['成本风险预留', costs.riskReserveCents]].filter(([, value]) => Number.isFinite(value));
+    } else {
+      const label = e.source === 'MERCHANT_COST_DECLARATION' ? '确认方案中的商家申报成本' : '确认方案中的成本合计（含估算下限）';
+      parts = [[label, e.estimatedCostCents]];
+    }
     return '<div class="pricing-economics-summary"><div><span>已配置成本估算</span><strong>'+priceMoney(e.estimatedCostCents)+'</strong></div><div><span>预测制造利润</span><strong>'+priceMoney(e.estimatedProfitCents)+'</strong></div><div><span>预测利润率（未计税费等）</span><strong>'+margin(e.estimatedMarginBps)+'</strong></div></div><details class="pricing-cost-details"><summary>查看内部成本估算</summary>'+parts.map(([name,value])=>'<div class="detail-row"><span>'+name+'</span><strong>'+priceMoney(value)+'</strong></div>').join('')+'<p class="pricing-muted">预计设备机时 '+Number(e.productionHours??e.durationSeconds/3600).toFixed(2)+' 小时 · 计价版本 '+e.pricingRevision+'。利润按制造应收减上述成本预测，未计入税费、支付渠道费及未录入的经营开销，不是实际净利润。</p></details>';
   }
   function merchantReceivable(breakdown){

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
@@ -38,6 +39,7 @@ export async function launch(args = process.argv.slice(2)) {
     console.log('Usage: node tools/launch-local.mjs [--port 3000] [--no-open]');
     return;
   }
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   process.chdir(projectRoot);
   const { createPlatformServer } = await import('../services/platform/local.mjs');
   const { server, store } = createPlatformServer({ dbPath: process.env.DATA_PATH || path.join(projectRoot, 'data/platform.sqlite') });
@@ -67,7 +69,7 @@ export async function launch(args = process.argv.slice(2)) {
   process.once('SIGTERM', shutdown);
   server.on('error', error => { console.error(`Server error: ${error.message}`); process.exitCode = 1; shutdown(); });
   const url = `http://127.0.0.1:${options.port}`;
-  console.log(`\nGongzao v0.9 - local sandbox\n${url}\nMerchant: ${url}/merchant/login\n`);
+  console.log(`\nGongzao v${version} - local sandbox\n${url}\nMerchant: ${url}/merchant/login\n`);
   console.log('Keep this window open. Press Ctrl+C to stop.');
   console.log('Local data: data/platform.sqlite (or your DATA_PATH setting).');
   console.log('Printing, payments and logistics are simulated. No npm install is required.\n');

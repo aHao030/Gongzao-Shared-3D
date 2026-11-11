@@ -295,3 +295,5 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .customer-form-grid .field,.customer-profile-form>.field{min-width:0}
 @media(max-width:760px){.header-nav .customer-login-link{font-size:12px;min-height:46px}.form-error-summary{padding:12px;margin-bottom:18px}.auth-role-switch{margin-bottom:20px}}
 @media(max-width:360px){.header-nav[aria-label="个人导航"]{gap:6px}.header-nav[aria-label="个人导航"] button,.header-nav .customer-login-link{font-size:11px}}
+
+#quantity-error:empty{display:none}

@@ -37,7 +37,7 @@ function originFrom(value) {
   if(!value)return null;
   try {
     const url=new URL(value);
-    if(url.origin!==value||url.username||url.password||url.search||url.hash)return null;
+    if((url.origin!==value && url.origin+'/'!==value)||url.username||url.password||url.search||url.hash)return null;
     if(url.protocol!=='https:'&&!(url.protocol==='http:'&&['127.0.0.1','localhost'].includes(url.hostname)))return null;
     return url.origin;
   }catch {return null;}

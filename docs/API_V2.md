@@ -241,7 +241,7 @@ v0.6 的 `weight` 为单件几何估重，`hours` 为整批机时除以件数的
 | 500 | `INTERNAL_ERROR` |
 | 503 | 托管外围 `STORAGE_UNAVAILABLE` |
 
-每个空间逻辑上限：100 个模型（含样例）、500 笔订单、6,000 份报价、2,000 个成功操作幂等键；整个工作空间 JSON 另限 1 MiB，实际可能先触及该字节上限。reset 不清空幂等台账，因此不能绕过操作容量。SQLite 使用事务保存模型元数据与文件；D1 使用 revision 比较更新，R2 文件先写、元数据后提交，不是跨 D1/R2 原子事务。并发失败应使用原幂等键重试。
+每个空间逻辑上限：100 个模型（含样例）、500 笔订单、6,000 份报价、2,000 个成功操作幂等键；每个存储行上限 1 MiB。v0.9.3 在超出单行时可无损压缩报价历史与报价回执，整个空间展开后另限 6 MiB，其他业务数据仍按原大小计入单行。reset 不清空幂等台账，因此不能绕过操作容量。SQLite 使用事务保存模型元数据与文件；D1 使用 revision 比较更新，R2 文件先写、元数据后提交，不是跨 D1/R2 原子事务。并发失败应使用原幂等键重试。
 
 ## 最小调用示例
 
@@ -270,7 +270,7 @@ curl -b /tmp/coforge-cookie.txt -X POST http://127.0.0.1:3000/api/v2/quotes \
 - 新地址按国家 schema 校验；旧海外地址仍可读，缺少新必填项的测算返回 409 `ADDRESS_INCOMPLETE`。审核订单保留 UNPAID。报价/订单携带 market 与 paymentContext，客户端不能通过 currency/provider 覆盖。
 - 报价及订单的 `currency`、市场快照的 `accountingCurrency` 固定为 `CNY`；`referenceCurrency` 仅为所在地区的参考币种，其他地区可为 `null`。`exchangeRate` 为 `null`，不提供兑换金额。所有 `paymentContext.methods` 均为 `NOT_CONFIGURED` / `enabled:false`，`livePaymentsEnabled` 与 `payable` 均为 `false`。
 - 工程询价使用 `priceStatus: REVIEW_REQUIRED`、`days: []`、`transitDays: []`、`estimation.estimatedArrival: null`，需要审核后确认价格、国际运费和交期。`total/totalCents/shippingCents` 的 `0` 仅保留旧接口占位，客户端必须按 `review` 或 `priceStatus` 显示“待询价”，不得展示为免费报价。普通演示测算使用 `SANDBOX_ESTIMATE`，也不构成真实报价或收款入口。
-- `GET /api/auth/config`、`GET /api/auth/session` 不使用 /api/v2 前缀。前者决定环境与登录方式，后者决定账号是否认证。旧 v2/session 的 authenticated 是工作空间会话状态，不能用于判断商家已认证。
+- `GET /api/auth/config`、`GET /api/auth/session` 不使用 /api/v2 前缀。前者决定环境与登录方式，后者决定账号是否认证。v0.9.3 的 `/api/v2/session` 通过 `authenticated` 表示账号认证，通过 `workspaceAvailable` 表示工作空间可用，`sessionType` 为 GUEST 或 ACCOUNT。页面使用 `X-Gongzao-Workspace` 回传原会话范围。账号发生变化时服务返回 `409 WORKSPACE_CHANGED`，界面重新加载当前账号。
 - 本机 `POST /api/auth/register` body `{email,password,displayName?,adoptLegacyWorkspace?}`；`POST /api/auth/login` body `{email,password}`；`POST /api/auth/logout` body `{}`。使用同源 JSON；认证端点不要求 v2 幂等键。密码 12–128 字符，邮箱未验证。
 - 本机 `/api/v2/merchant/*` 要求账号 Cookie。旧匿名客户 Cookie 不授予商家权限。网关仍使用自己的配对授权。
 - 配置 OIDC 后由 `/api/auth/oidc/start?provider=...` 启动，回调 `/api/auth/oidc/callback`；服务端管理 flow Cookie/state/nonce/PKCE。入口仅允许配置中的六种 provider id。

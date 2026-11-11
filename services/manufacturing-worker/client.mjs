@@ -9,7 +9,7 @@ const KINDS = ['ANALYZE_MODEL', 'SLICE_MODEL', 'SCHEDULE'];
 const HASH = /^[a-f0-9]{64}$/;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export class WorkerError extends Error {
-  constructor(code, message) { super(message); this.name = 'WorkerError'; this.code = code; }
+  constructor(code, message, status) { super(message); this.name = 'WorkerError'; this.code = code; this.status = status; }
 }
 const require = (condition, code, message) => { if (!condition) throw new WorkerError(code, message); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -116,7 +116,7 @@ export class ManufacturingWorker {
       const bytes = await readBounded(response, download && response.ok ? 20 * 1024 * 1024 : 1024 * 1024);
       if (download && response.ok) return bytes;
       let data; try { data = JSON.parse(bytes.toString('utf8')); } catch { throw new WorkerError('PLATFORM_RESPONSE_INVALID', 'The platform did not return JSON; check authentication'); }
-      if (!response.ok || data.error) throw new WorkerError(data.error?.code ?? 'PLATFORM_REQUEST_FAILED', data.error?.message ?? 'Platform request failed');
+      if (!response.ok || data.error) throw new WorkerError(data.error?.code ?? 'PLATFORM_REQUEST_FAILED', data.error?.message ?? 'Platform request failed', response.status);
       return data;
     } catch (error) {
       if (error instanceof WorkerError) throw error;
@@ -169,13 +169,37 @@ export class ManufacturingWorker {
     }
     return this.engine(request, this.config);
   }
+  async submitReport(journal, replay = false) {
+    const report = journal.report;
+    const jobId = journal.job.id;
+    try {
+      await this.request('/' + report.route, {payload: report.payload, key: report.key});
+    } catch (error) {
+      if ((error.status === 409 && error.code === 'STALE_JOB_LEASE') || (error.status === 404 && error.code === 'JOB_NOT_FOUND')) {
+        // The platform retired this attempt. It owns the next lease and may already have reassigned it.
+        await this.saveJournal({});
+        return {status: 'LEASE_RELEASED', jobId, code: error.code};
+      }
+      const invalidResult = ['JOB_RESULT_MISMATCH', 'INVALID_GEOMETRY_RESULT', 'INVALID_SLICE_RESULT',
+        'INVALID_SCHEDULE', 'SCHEDULE_OVERLAP', 'PROFILE_CHANGED', 'MODEL_CHANGED',
+        'PROFILE_HASH_MISMATCH', 'SCHEDULE_STALE'];
+      if (report.route === 'complete' && [400, 409].includes(error.status) && invalidResult.includes(error.code)) {
+        journal.report = {route: 'fail', key: 'worker-fail:' + randomUUID(), payload: {
+          jobId, leaseToken: journal.job.leaseToken, attempt: journal.job.attempt,
+          errorCode: error.code, errorMessage: 'The platform rejected this computation result: ' + error.code
+        }};
+        await this.saveJournal(journal);
+        return this.submitReport(journal);
+      }
+      throw error;
+    }
+    await this.saveJournal({});
+    return {status: replay ? 'REPORTED' : report.route === 'complete' ? 'COMPLETED' : 'FAILED',
+      jobId, ...(report.payload.errorCode ? {code: report.payload.errorCode} : {})};
+  }
   async cycle() {
     let journal = await this.readJournal();
-    if (journal.report) {
-      await this.request('/' + journal.report.route, { payload:journal.report.payload, key:journal.report.key });
-      const completed = journal.job?.id; await this.saveJournal({});
-      return { status:'REPORTED', jobId:completed };
-    }
+    if (journal.report) return this.submitReport(journal, true);
     if (!journal.job) {
       journal.claim ??= { key:'worker-claim:' + randomUUID(), payload:{ kinds:this.config.kinds, leaseSeconds:Math.min(900, this.config.maxTaskSeconds + 90) } };
       await this.saveJournal(journal);
@@ -190,13 +214,12 @@ export class ManufacturingWorker {
       const result = await this.compute(job);
       report = { route:'complete', key:'worker-complete:' + randomUUID(), payload:{ jobId:job.id, leaseToken:job.leaseToken, attempt:job.attempt, result } };
     } catch (error) {
+      if (['PLATFORM_TIMEOUT', 'PLATFORM_UNAVAILABLE'].includes(error.code)) throw error;
       report = { route:'fail', key:'worker-fail:' + randomUUID(), payload:{ jobId:job.id, leaseToken:job.leaseToken, attempt:job.attempt,
         errorCode:error instanceof WorkerError ? error.code : 'LOCAL_COMPUTATION_FAILED',
         errorMessage:error instanceof WorkerError ? error.message.slice(0, 300) : 'Local computation failed; inspect worker configuration' } };
     }
     journal.report = report; await this.saveJournal(journal);
-    await this.request('/' + report.route, { payload:report.payload, key:report.key });
-    await this.saveJournal({});
-    return { status:report.route === 'complete' ? 'COMPLETED' : 'FAILED', jobId:job.id, code:report.payload.errorCode };
+    return this.submitReport(journal);
   }
 }

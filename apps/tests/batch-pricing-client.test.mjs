@@ -71,3 +71,23 @@ test('offline sample makes clear that its historical example is not the server b
   assert.equal(client.getModeInfo().isLocal, true);
   assert.match(client.getModeInfo().modeNote, /旧版本机示例计价，不使用服务端批量成本算法/);
 });
+
+test('observed slice shows plate count without inventing capacity or claiming no slicing', async () => {
+  const client = await service({quotes: [{quoteId: 'sliced', total: 180, days: [3,5], productionHours: 7, estimateBasis: 'SLICER_OUTPUT',
+    batch: {method: 'SLICER_OUTPUT_ESTIMATE', plateCount: 2, capacityPerPlate: null}}]});
+  await client.selectMode('server');
+  const [item] = await client.getQuotes({materialIndex: 0, quantity: 35});
+  assert.match(item.batchNote, /切片估算 2 板/);
+  assert.doesNotMatch(item.batchNote, /null|未执行|每板最多/);
+});
+
+test('server mode exposes the actual quoted example and rejects out-of-range legacy quantities', async () => {
+  const client = await service();
+  assert.equal(client.getModeInfo().maxQuantity, 100);
+  await client.selectMode('server');
+  const info = client.getModeInfo();
+  assert.equal(info.maxQuantity, 50);
+  assert.equal(info.sample.modelName, '桌面设备固定支架.stl');
+  assert.equal(info.sample.dimensions, '72 × 48 × 58 mm');
+  await assert.rejects(client.getQuotes({materialIndex: 0, quantity: 51}), /1–50/);
+});

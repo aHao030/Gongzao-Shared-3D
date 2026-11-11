@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.8 模型需求、商家方案与履约沙盒 API",
-    "version": "0.8.0",
-    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every /api/v2 POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md. v0.7: Local merchant APIs require a registered account cookie, while customer anonymous sandbox sessions remain available. Separate /api/auth routes do not require Idempotency-Key. Address required fields are country-dependent via /api/v2/markets. All payments stay disabled. v0.8 adds owner-scoped capability templates, model-first inquiries, versioned proposals and exact-revision customer acceptance. These are single-owner sandbox flows; a self-declared capability or approved manual plan is not authorization for real manufacturing. Private proposal cost evidence is restricted to merchant inquiry responses. All estimated price and time ranges remain unverified sandbox forecasts."
+    "title": "共造 模型需求、商家方案与履约沙盒 API",
+    "version": "0.9.3",
+    "description": "主站客户、商家报价和订单沙盒接口。客户与商家操作限定在同一归属空间。报价可以携带匹配的独立切片计算结果。支付、派机及结算使用模拟状态。设备网关和生产中心接口另见 MERCHANT_GUIDE.md 及 OPERATIONS_CONTRACT_V0.9.md。"
   },
   "servers": [
     {
@@ -1074,8 +1074,8 @@
             "type": "string"
           },
           "authenticated": {
-            "const": true,
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True only for a verified account. A local guest workspace has authenticated=false."
           },
           "user": {
             "type": "object",
@@ -1135,6 +1135,21 @@
               "realDevices",
               "wechatAuthentication"
             ]
+          },
+          "workspaceAvailable": {
+            "type": "boolean",
+            "const": true
+          },
+          "sessionType": {
+            "type": "string",
+            "enum": [
+              "GUEST",
+              "ACCOUNT"
+            ]
+          },
+          "workspaceContext": {
+            "type": "string",
+            "description": "Opaque workspace binding. The browser echoes it in X-Gongzao-Workspace to detect account changes."
           }
         },
         "required": [
@@ -1142,7 +1157,10 @@
           "authenticated",
           "user",
           "persistence",
-          "capabilities"
+          "capabilities",
+          "workspaceAvailable",
+          "sessionType",
+          "workspaceContext"
         ]
       },
       "Model": {
@@ -3015,6 +3033,7 @@
           "method": {
             "enum": [
               "GEOMETRY_HEURISTIC",
+              "SLICER_OUTPUT",
               "MANUAL_REVIEW"
             ]
           },
@@ -3022,7 +3041,10 @@
             "const": "UNVERIFIED"
           },
           "slicer": {
-            "type": "null"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "machineValidated": {
             "const": false
@@ -3366,9 +3388,18 @@
         "type": "object",
         "properties": {
           "method": {
-            "const": "BOUNDING_BOX_GRID_ESTIMATE"
+            "enum": [
+              "BOUNDING_BOX_GRID_ESTIMATE",
+              "SLICER_OUTPUT_ESTIMATE"
+            ]
           },
           "plateSizeMm": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "usableSizeMm": {
             "type": "array",
             "items": {
               "type": "number"
@@ -3381,13 +3412,19 @@
             "type": "number"
           },
           "capacityPerPlate": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "plateCount": {
             "type": "integer"
           },
           "partsPerPlate": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "integer"
             }
@@ -3408,7 +3445,7 @@
             "const": false
           }
         },
-        "description": "Unverified bounding-box grid estimate. Does not produce toolpaths or check supports, brim or physical collisions. Not cross-customer batching."
+        "description": "Per-order estimate from the usable envelope or a matched slicer result. Slicer output can omit layout details. Neither source verifies physical readiness."
       },
       "MerchantPricingRequest": {
         "type": "object",

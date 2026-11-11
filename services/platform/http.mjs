@@ -9,6 +9,15 @@ import { handleOperationsApi, handleProductionWorkerApi } from './operations-htt
 import { unconfiguredStatus } from '../integrations/catalog.mjs';
 
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
+const entryPaths = new Set(['/', '/index.html', '/login', '/login/', '/account/login', '/account/login/', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/']);
+export const isAppEntryPath = pathname => entryPaths.has(pathname);
+export function staticAssetResponse(body, contentType) {
+  return new Response(body, {headers: {
+    'Content-Type': contentType, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self' https://chatgpt.com"
+  }});
+}
 const CUSTOMER_FIELDS = new Set(['displayName','recipient','phone','countryCode','province','city','district','addressLine','postalCode']);
 function customerFieldErrors(error) {
   if (!['INVALID_ADDRESS','INVALID_PROFILE','ADDRESS_INCOMPLETE'].includes(error.code) || !error.fieldErrors || typeof error.fieldErrors !== 'object' || Array.isArray(error.fieldErrors)) return {};
@@ -28,10 +37,19 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
+    const accountSession = accountAuthenticated === true;
+    const workspaceContext = ownerId ? (accountSession ? 'account:' : 'guest:') + encodeURIComponent(ownerId) : null;
+    const expectedContext = request.headers.get('X-Gongzao-Workspace');
+    if (expectedContext !== null && path !== '/api/v2/session' && !path.startsWith('/api/v2/gateway/') && !path.startsWith('/api/v2/worker/')) {
+      ensure(expectedContext === workspaceContext, 409, 'WORKSPACE_CHANGED', '当前账号已切换或会话已到期，请刷新后继续');
+    }
+    if (path.startsWith('/api/v2/merchant/')) {
+      ensure(accountSession && ownerId, 401, 'ACCOUNT_LOGIN_REQUIRED', '请先登录共造账号，再进入商家工作台');
+    }
     if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess});
     if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.2',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.3',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
@@ -44,7 +62,12 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
     if(request.method==='GET'&&['/api/v2/capabilities','/api/v2/merchant/capabilities'].includes(path))return jsonResponse(getCapabilities(await store.load(ownerId),path.includes('/merchant/')));
     if(request.method==='GET'&&['/api/v2/inquiries','/api/v2/merchant/inquiries'].includes(path))return jsonResponse(getInquiries(await store.load(ownerId),path.includes('/merchant/')));
     if(request.method==='GET'&&path==='/api/v2/merchant/pricing')return jsonResponse(getMerchantPricing(await store.load(ownerId)));
-    if(request.method==='GET'&&path==='/api/v2/session')return jsonResponse({mode:'SERVER_SANDBOX',authenticated:true,user:{id:ownerId,label:userLabel},persistence:store.kind,capabilities:{uploads:true,maxUploadBytes:20*1024*1024,maxStlTriangles:50000,realPayments:false,realDevices:false,wechatAuthentication:false}});
+    if(request.method==='GET'&&path==='/api/v2/session')return jsonResponse({
+      mode:'SERVER_SANDBOX',authenticated:accountSession,sessionType:accountSession ? 'ACCOUNT' : 'GUEST',
+      workspaceAvailable:true,workspaceContext,
+      user:{id:ownerId,label:userLabel},persistence:store.kind,
+      capabilities:{uploads:true,maxUploadBytes:20*1024*1024,maxStlTriangles:50000,realPayments:false,realDevices:false,wechatAuthentication:false}
+    });
     if(request.method==='GET'&&path==='/api/v2/customer/profile')return jsonResponse({profile:getCustomerProfile(await store.load(ownerId))});
     if(request.method==='GET'&&path==='/api/v2/workspace')return jsonResponse({mode:'SERVER_SANDBOX',workspace:getPublicWorkspace(await store.load(ownerId))});
     const download=path.match(/^\/api\/v2\/models\/(mdl_[a-zA-Z0-9_-]+)\/download$/);
@@ -74,7 +97,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
       catch(error){if(error instanceof ApiError)throw error;throw new ApiError(400,'INVALID_JSON','请求体不是有效 JSON');}
       ensure(payload&&typeof payload==='object'&&!Array.isArray(payload),400,'INVALID_PAYLOAD','请求体必须为对象');
     }
-    const outcome=await store.transact(ownerId,workspace=>applyCommand(workspace,{type,payload,idempotencyKey:key},{now:clock(),idFactory:()=>crypto.randomUUID()}),pendingFile);
+    const outcome=await store.transact(ownerId,workspace=>applyCommand(workspace,{type,payload,idempotencyKey:key},{now:clock(),idFactory:()=>crypto.randomUUID(),loadModelBytes:id=>store.getFile(ownerId,id)}),pendingFile,{queueQuote:type==='quote'});
     return jsonResponse({...outcome.result,mode:'SERVER_SANDBOX',workspace:getPublicWorkspace(outcome.workspace),replayed:outcome.replayed===true,requestId},type==='order'||type==='register-model'?201:200);
   }catch(error){
     const expected=error instanceof ApiError||['DomainError','PlatformError'].includes(error.name);

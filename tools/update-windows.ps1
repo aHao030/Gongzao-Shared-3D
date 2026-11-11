@@ -72,6 +72,7 @@ try {
     Write-Host "原项目：$($result.target)"
     Write-Host "代码备份：$($result.backup)"
     Write-Host '原 data、私密配置和依赖目录均保留。'
+    foreach ($config in $result.preserved) { Write-Host "保留本机部署设置：$config" }
     Write-Host '现在进入原项目文件夹，双击 START-WINDOWS.cmd 启动。'
     exit 0
 } catch {

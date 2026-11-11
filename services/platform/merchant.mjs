@@ -54,11 +54,15 @@ function registrationConflict(m, candidate) {
   const device = m.devices.find(d => d.source === 'real' && d.id !== candidate.id && d.protocol === candidate.protocol && (d.endpoint === candidate.endpoint || d.gatewayId !== candidate.gatewayId && d.deviceKey === candidate.deviceKey));
   return device ? { device, reason: device.gatewayId === candidate.gatewayId ? 'IDENTITY_CHANGED' : 'OTHER_GATEWAY' } : null;
 }
+// Scan order is the committed append order, even if two checks share a clock tick.
+function latestGatewayScan(merchant, scan) {
+  return merchant.scans.findLast(item => item.gatewayId === scan.gatewayId)?.id === scan.id;
+}
 export function publicScan(scan, workspace, now = Date.now()) {
   if (!scan) return null;
   const m = requireMerchant(workspace);
   const gateway = m.gateways.find(g => g.id === scan.gatewayId);
-  const importBlockedReason = scan.expiresAt <= now ? 'SCAN_EXPIRED' : scan.status !== 'complete' ? 'SCAN_NOT_COMPLETE' : scan.scope === 'real' && (!gateway || !gatewayOnline(gateway, now)) ? 'GATEWAY_OFFLINE' : null;
+  const importBlockedReason = scan.expiresAt <= now ? 'SCAN_EXPIRED' : !latestGatewayScan(m, scan) ? 'SCAN_SUPERSEDED' : scan.status !== 'complete' ? 'SCAN_NOT_COMPLETE' : scan.scope === 'real' && (!gateway || !gatewayOnline(gateway, now)) ? 'GATEWAY_OFFLINE' : null;
   return { id: scan.id, importable: importBlockedReason === null, importBlockedReason, scope: scan.scope, gatewayId: scan.gatewayId, status: scanState(scan, now), createdAt: scan.createdAt, expiresAt: scan.expiresAt, completedAt: scan.completedAt ?? null, error: scan.error ?? null, candidates: scan.candidates.map(c => { const existing = m.devices.find(d => d.id === c.id), conflict = registrationConflict(m, c); return { ...copy(c), registered: Boolean(existing || conflict), existingDeviceId: existing?.id ?? conflict?.device.id ?? null, registrationConflict: conflict?.reason ?? null, verification: verification(c), capabilityDetails: capabilityDetails(), capabilities: ['monitor'], automaticPrinting: false }; }) };
 }
 export function merchantScanResult(workspace, scanId, now = Date.now()) {
@@ -174,6 +178,7 @@ export async function applyMerchantCommand(workspace, { type, payload, idempoten
     }
   } else if (type === 'import') {
     const scan = findScan(m, payload.scanId);
+    ensure(latestGatewayScan(m, scan), 409, 'SCAN_SUPERSEDED', '该网关已有更新的扫描，请刷新并从最新结果添加设备');
     ensure(scanState(scan, now) === 'complete' && scan.expiresAt > now, 409, 'SCAN_NOT_IMPORTABLE', '请重新扫描设备后添加，当前扫描未完成或已过期');
     if (scan.scope === 'real') ensure(gatewayOnline(findGateway(m, scan.gatewayId), now), 409, 'GATEWAY_OFFLINE', '网关已离线，请重新连接后扫描');
     ensure(Array.isArray(payload.candidateIds) && payload.candidateIds.length > 0 && payload.candidateIds.length <= MAX_CANDIDATES && payload.candidateIds.every(id => typeof id === 'string'), 400, 'INVALID_CANDIDATES', '请选择要添加的设备');

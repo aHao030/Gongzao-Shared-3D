@@ -3,6 +3,14 @@ export class ApiError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
 export const ensure = (value, status, code, message) => { if (!value) throw new ApiError(status, code, message); };
+export const CURRENT_MESH_ANALYSIS = 'stl-server-v3';
+export function needsMeshAnalysis(model) {
+  return model?.format === 'stl' && !model.isSample && model.analysisVersion !== CURRENT_MESH_ANALYSIS;
+}
+export function modelForPricing(model) {
+  if (!needsMeshAnalysis(model)) return model;
+  return { ...model, volume: 0, review: true, analysisNote: '旧版几何数据需要重新解析，请重新上传同名 STL，或请商家审核原件后报价。' };
+}
 export async function sha256(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('');
@@ -15,7 +23,7 @@ export async function analyzeModel(bytes, rawName) {
   ensure(bytes.byteLength > 0, 400, 'EMPTY_FILE', '文件不能为空');
   const hash = await sha256(bytes);
   const id = 'mdl_' + (await sha256(new TextEncoder().encode(hash + ':' + name))).slice(0, 32);
-  const base = { id, name, size: bytes.byteLength, sha256: hash, format, analysisVersion: 'stl-server-v2', dimensions: [], volume: 0, closed: false, review: true };
+  const base = { id, name, size: bytes.byteLength, sha256: hash, format, analysisVersion: format === 'stl' ? CURRENT_MESH_ANALYSIS : 'stl-server-v2', dimensions: [], volume: 0, closed: false, review: true };
   if (format !== 'stl') return base;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let count = 0, binary = false;
@@ -37,21 +45,49 @@ export async function analyzeModel(bytes, rawName) {
     ensure(vertices.length > 0 && vertices.length%3 === 0, 422, 'INVALID_STL', 'STL 顶点数无效');
     triangles = Array.from({length:vertices.length/3}, (_,i) => vertices.slice(i*3,i*3+3));
   }
-  const min=[Infinity,Infinity,Infinity], max=[-Infinity,-Infinity,-Infinity], edges=new Map();
-  let signed=0, degenerate=false;
-  for(const [a,b,c] of triangles) {
-    for(const v of [a,b,c]) for(let k=0;k<3;k++) {
-      ensure(Number.isFinite(v[k]) && Math.abs(v[k])<=1e6,422,'INVALID_COORDINATE','模型包含无效或过大的坐标');
-      min[k]=Math.min(min[k],v[k]);max[k]=Math.max(max[k],v[k]);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  const edges = new Map(), parents = triangles.map((_, i) => i);
+  function component(face) {
+    while (face !== parents[face]) {
+      parents[face] = parents[parents[face]];
+      face = parents[face];
     }
-    const u=b.map((v,i)=>v-a[i]), v=c.map((n,i)=>n-a[i]);
-    if(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])<1e-10)degenerate=true;
-    signed+=(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;
-    const points=[a,b,c].map(p=>p.map(n=>n.toFixed(5)).join(','));
-    for(let i=0;i<3;i++) { const x=points[i], y=points[(i+1)%3], key=x<y?x+'|'+y:y+'|'+x; const previous=edges.get(key)||[0,0]; previous[0]++;previous[1]+=x<y?1:-1;edges.set(key,previous); }
+    return face;
   }
-  const dimensions=max.map((v,i)=>v-min[i]), volume=Math.abs(signed)/1000;
-  ensure(dimensions.every(v=>v>0 && v<=1e6),422,'INVALID_DIMENSIONS','模型缺少有效三维尺寸');
-  const closed=!degenerate && volume>0 && [...edges.values()].every(([count,balance])=>count===2 && balance===0);
-  return {...base,dimensions,volume,closed,review:!closed,faceCount:triangles.length,analysisNote:'单位需由客户确认；未验证自相交、壁厚、公差或切片可制造性'};
+  let degenerate = false;
+  for (const [index, vertices] of triangles.entries()) {
+    for (const point of vertices) for (let axis = 0; axis < 3; axis++) {
+      ensure(Number.isFinite(point[axis]) && Math.abs(point[axis]) <= 1e6, 422, 'INVALID_COORDINATE', '模型包含无效或过大的坐标');
+      min[axis] = Math.min(min[axis], point[axis]);
+      max[axis] = Math.max(max[axis], point[axis]);
+    }
+    const [a, b, c] = vertices, u = b.map((n, i) => n - a[i]), v = c.map((n, i) => n - a[i]);
+    if (Math.hypot(u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]) < 1e-10) degenerate = true;
+    const points = vertices.map(p => p.map(n => n.toFixed(5)).join(','));
+    for (let i = 0; i < 3; i++) {
+      const x = points[i], y = points[(i + 1) % 3], key = x < y ? x + '|' + y : y + '|' + x;
+      const edge = edges.get(key) ?? { count: 0, balance: 0, face: index };
+      parents[component(index)] = component(edge.face);
+      edge.count++;
+      edge.balance += x < y ? 1 : -1;
+      edges.set(key, edge);
+    }
+  }
+  const dimensions = max.map((n, i) => n - min[i]);
+  ensure(dimensions.every(n => n > 0 && n <= 1e6), 422, 'INVALID_DIMENSIONS', '模型缺少有效三维尺寸');
+
+  // A per-shell reference avoids catastrophic cancellation far from the origin.
+  const shellVolumes = new Map();
+  for (const [index, vertices] of triangles.entries()) {
+    const shell = component(index), origin = triangles[shell][0];
+    const [a, b, c] = vertices.map(point => point.map((n, axis) => n - origin[axis]));
+    const sixVolume = a[0]*(b[1]*c[2]-b[2]*c[1]) + a[1]*(b[2]*c[0]-b[0]*c[2]) + a[2]*(b[0]*c[1]-b[1]*c[0]);
+    shellVolumes.set(shell, (shellVolumes.get(shell) ?? 0) + sixVolume);
+  }
+  const signed = [...shellVolumes.values()];
+  const volume = Math.abs(signed.reduce((sum, n) => sum + n, 0)) / 6000;
+  const mixedWinding = signed.some(n => n < 0) && signed.some(n => n > 0);
+  const closed = !degenerate && [...edges.values()].every(edge => edge.count === 2 && edge.balance === 0);
+  const analysisNote = mixedWinding ? '多个封闭曲面的绕向不同，需要确认内腔与独立实体后估算用量。' : '单位需由客户确认；未验证自相交、壁厚、公差或切片可制造性';
+  return { ...base, dimensions, volume, closed, review: !closed || mixedWinding || volume <= 0, faceCount: triangles.length, analysisNote };
 }

@@ -116,3 +116,17 @@ test('WeChat local mode does not request or retain address/market data and stale
   const pending = h.page.onShow(); h.page.onUnload(); resolveMarkets(getMarketCatalog()); await pending;
   assert.equal(h.page.data.form.recipient, ''); assert.equal(h.page.data.marketsReady, false);
 });
+
+test('mini-program multi-field validation retains the draft and clears only the corrected error', async () => {
+  const h = await profilePage();
+  await h.page.onShow();
+  h.field('recipient', '测试客户'); h.field('phone', '12+3');
+  await h.page.saveProfile();
+  assert.equal(h.saved.length, 0);
+  assert.match(h.page.data.fieldErrors.phone, /5–20/);
+  assert.match(h.page.data.fieldErrors.province, /请填写/);
+  h.field('phone', '+86 123456789');
+  assert.equal(h.page.data.fieldErrors.phone, undefined);
+  assert.ok(h.page.data.fieldErrors.province);
+  assert.equal(h.page.data.form.recipient, '测试客户');
+});

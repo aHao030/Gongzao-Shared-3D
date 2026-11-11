@@ -48,6 +48,54 @@ async function projectAt(directory) {
 }
 function compareVersion(a, b) { const aa = a.split('-')[0].split('.').map(Number), bb = b.split('-')[0].split('.').map(Number); for (let i = 0; i < 3; i++) if (aa[i] !== bb[i]) return aa[i] - bb[i]; return 0; }
 
+// These files contain installation-specific settings that operators are asked to edit.
+const localWechatFiles = new Set(['apps/weapp/config/service.js', 'apps/weapp/utils/auth.js']);
+const applicationIdentifiers = new Map([
+  ['apps/weapp/project.config.json', ['appid', 'touristappid']],
+  ['apps/mobile/capacitor.config.json', ['appId', 'com.example.sharedfabrication']],
+  ['apps/desktop/src-tauri/tauri.conf.json', ['identifier', 'com.example.sharedfabrication']],
+]);
+
+async function previousWechatTemplates(target) {
+  const manifestName = 'UPDATE-MANIFEST.json';
+  const manifestPath = path.join(target, manifestName);
+  try {
+    await ordinaryPath(target, manifestName);
+    if ((await fs.stat(manifestPath)).size > 2 * 1024 * 1024) return new Map();
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    if (manifest?.project !== projectName || manifest.schema !== 1 || !Array.isArray(manifest.files)) return new Map();
+    return new Map(manifest.files.filter(entry => localWechatFiles.has(entry?.path)).map(entry => [entry.path, entry.sha256]));
+  } catch (error) {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) return new Map();
+    throw error;
+  }
+}
+
+async function retainDeploymentSettings(targetFile, name, packageBytes, templates) {
+  if (!localWechatFiles.has(name) && !applicationIdentifiers.has(name)) return { bytes: packageBytes };
+  const existing = await fs.readFile(targetFile);
+  if (existing.equals(packageBytes)) return { bytes: packageBytes };
+  if (localWechatFiles.has(name)) {
+    // An unchanged template can receive vendor fixes. Keep a local adapter when its provenance is unknown.
+    if (templates.get(name) === digest(existing)) return { bytes: packageBytes };
+    return { skip: true, preserved: name };
+  }
+
+  let current, next;
+  try {
+    current = JSON.parse(existing.toString('utf8').replace(/^\uFEFF/, ''));
+    next = JSON.parse(packageBytes.toString('utf8'));
+  } catch {
+    throw new Error('Cannot preserve the registered app identifier. Check the JSON in ' + name);
+  }
+  const [key, placeholder] = applicationIdentifiers.get(name);
+  if (typeof current?.[key] !== 'string' || !current[key].trim() || current[key] === placeholder || current[key] === next[key]) {
+    return { bytes: packageBytes };
+  }
+  next[key] = current[key];
+  return { bytes: Buffer.from(JSON.stringify(next, null, 2) + '\n'), preserved: name };
+}
+
 export async function prepareUpdate({ source = defaultSource, target = defaultTarget } = {}) {
   source = path.resolve(source); target = path.resolve(target);
   if (target === path.parse(target).root || source === path.parse(source).root) throw new Error('A disk root cannot be a project folder.');
@@ -59,9 +107,11 @@ export async function prepareUpdate({ source = defaultSource, target = defaultTa
   const sourcePkg = await projectAt(realSource), targetPkg = await projectAt(realTarget);
   if (compareVersion(sourcePkg.version, targetPkg.version) < 0) throw new Error('Refusing to downgrade a newer project.');
   await ordinaryPath(realSource, 'UPDATE-MANIFEST.json');
-  const manifest = JSON.parse(await fs.readFile(path.join(realSource, 'UPDATE-MANIFEST.json'), 'utf8'));
+  const manifestBytes = await fs.readFile(path.join(realSource, 'UPDATE-MANIFEST.json'));
+  const manifest = JSON.parse(manifestBytes.toString('utf8'));
   if (manifest.schema !== 1 || manifest.project !== projectName || manifest.version !== sourcePkg.version || !Array.isArray(manifest.files) || manifest.files.length < 3 || manifest.files.length > 5000) throw new Error('Invalid or mismatched update manifest.');
-  const seen = new Set(), files = []; let totalBytes = 0;
+  const templates = await previousWechatTemplates(realTarget);
+  const seen = new Set(), files = [], preserved = []; let totalBytes = 0;
   for (const entry of manifest.files) {
     if (!entry || typeof entry !== 'object') throw new Error('Invalid manifest entry.');
     const name = entry.path, lower = String(name).toLowerCase();
@@ -75,10 +125,18 @@ export async function prepareUpdate({ source = defaultSource, target = defaultTa
     const targetFile = path.join(realTarget, name);
     let existed = false;
     try { existed = (await fs.lstat(targetFile)).isFile(); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    files.push({ name, bytes, existed });
+    const settings = existed ? await retainDeploymentSettings(targetFile, name, bytes, templates) : { bytes };
+    if (settings.preserved) preserved.push(settings.preserved);
+    if (!settings.skip) files.push({ name, bytes: settings.bytes, existed });
   }
   for (const required of ['package.json', 'services/platform/local.mjs', 'dist/index.html']) if (!seen.has(required)) throw new Error('The package manifest is incomplete.');
-  return { source: realSource, target: realTarget, fromVersion: targetPkg.version, toVersion: sourcePkg.version, files };
+  const manifestName = 'UPDATE-MANIFEST.json';
+  await ordinaryPath(realTarget, manifestName, true);
+  let hadManifest = true;
+  try { await fs.access(path.join(realTarget, manifestName)); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; hadManifest = false; }
+  return { source: realSource, target: realTarget, fromVersion: targetPkg.version, toVersion: sourcePkg.version, files, preserved,
+    manifestFile: { name: manifestName, bytes: manifestBytes, existed: hadManifest } };
 }
 
 export async function applyUpdate(options = {}) {
@@ -86,12 +144,13 @@ export async function applyUpdate(options = {}) {
   const suffix = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomBytes(4).toString('hex');
   const backup = plan.target + '.backup-' + suffix;
   await fs.mkdir(backup, { recursive: false });
-  const receipt = { project: projectName, target: plan.target, fromVersion: plan.fromVersion, toVersion: plan.toVersion, status: 'BACKING_UP', createdAt: new Date().toISOString(), overwritten: [], added: [] };
+  const receipt = { project: projectName, target: plan.target, fromVersion: plan.fromVersion, toVersion: plan.toVersion, status: 'BACKING_UP', createdAt: new Date().toISOString(), overwritten: [], added: [], preserved: plan.preserved };
   const receiptPath = path.join(backup, 'UPDATE-RECEIPT.json');
   const saveReceipt = () => fs.writeFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
   const completed = [];
+  const installFiles = [...plan.files, plan.manifestFile];
   try {
-    for (const file of plan.files) {
+    for (const file of installFiles) {
       await ordinaryPath(plan.target, file.name, true);
       if (file.existed) {
         const dest = path.join(backup, 'code', file.name);
@@ -101,7 +160,7 @@ export async function applyUpdate(options = {}) {
       } else receipt.added.push(file.name);
     }
     receipt.status = 'APPLYING'; await saveReceipt();
-    for (const file of plan.files) {
+    for (const file of installFiles) {
       await ordinaryPath(plan.target, file.name, true);
       const destination = path.join(plan.target, file.name);
       await fs.mkdir(path.dirname(destination), { recursive: true });
@@ -110,7 +169,7 @@ export async function applyUpdate(options = {}) {
       finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
     }
     receipt.status = 'COMPLETE'; receipt.completedAt = new Date().toISOString(); await saveReceipt();
-    return { target: plan.target, backup, fromVersion: plan.fromVersion, toVersion: plan.toVersion, updatedFiles: completed.length };
+    return { target: plan.target, backup, fromVersion: plan.fromVersion, toVersion: plan.toVersion, updatedFiles: plan.files.length, preserved: plan.preserved };
   } catch (error) {
     const rollbackErrors = [];
     for (const file of completed.reverse()) {

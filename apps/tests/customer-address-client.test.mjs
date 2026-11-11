@@ -101,3 +101,31 @@ test('local demonstration does not collect a real shipping address', async () =>
   await assert.rejects(service.saveCustomerProfile(input), { code: 'SERVER_MODE_REQUIRED' });
   assert.equal(memory.size, 0);
 });
+
+test('mini-program receives only address field errors relevant to its form', async () => {
+  const response = {status: 400, data: {error: {code: 'INVALID_ADDRESS', message: '请重新检查收货地址', fieldErrors: {phone: '号码格式不正确', unrelated: 'unknown', city: 42}}}};
+  const client = make(async () => response);
+  await assert.rejects(client.saveCustomerProfile(input, 'test-address-key'), error => {
+    assert.deepEqual(error.fieldErrors, {phone: '号码格式不正确'});
+    return true;
+  });
+});
+
+test('a late server quote cannot replace a newer quote when the customer orders', async () => {
+  let finishOld, started;
+  const start = new Promise(resolve => { started = resolve; });
+  const {service} = await adapter(async request => {
+    if (request.url.endsWith('/customer/profile')) return {status: 200, data: {profile: {shippingAddress: address, addressRevision: 1}}};
+    if (request.url.endsWith('/orders')) return {status: 200, data: {order: {id: request.data.quoteId}}};
+    const quoteId = 'qty-' + request.data.qty;
+    if (request.data.qty === 1) { started(); await new Promise(resolve => { finishOld = resolve; }); }
+    return {status: 200, data: {quotes: [{quoteId, days: [1,2], total: 20}]}};
+  });
+  await service.selectMode('server');
+  const old = service.getQuotes({materialIndex: 0, quantity: 1});
+  await start;
+  await service.getQuotes({materialIndex: 0, quantity: 2});
+  finishOld(); await old;
+  assert.equal((await service.createOrder('qty-2')).id,'qty-2');
+  await assert.rejects(service.createOrder('qty-1'),/重新获取/);
+});

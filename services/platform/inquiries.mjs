@@ -1,9 +1,10 @@
-import { ApiError, ensure } from './geometry.mjs';
+import { ApiError, ensure, modelForPricing } from './geometry.mjs';
 import { farms, materials } from './catalog.mjs';
 import { requireShippingAddress } from './customer.mjs';
 import { quoteMarketContext } from './market.mjs';
 import { getPricingProfile, estimateBatch, estimateBatchPrice, PRICING_VERSION } from './pricing.mjs';
 import { requireMerchant } from './merchant.mjs';
+import { findSliceEvidence } from './operations.mjs';
 
 const copy = value => structuredClone(value);
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
@@ -77,11 +78,18 @@ function requirementsOf(payload, now) {
 export function getInquiries(workspace, merchant = false) {
   if (merchant) requireMerchant(workspace);
   const result = { mode: 'DEMO_ONLY', inquiries: copy(workspace.inquiries ?? []), realPayments: false, realProduction: false };
+  for (const inquiry of result.inquiries) {
+    if (inquiry.status !== 'AWAITING_CUSTOMER') continue;
+    const current = inquiry.proposals.find(proposal => proposal.revision === inquiry.currentProposalRevision);
+    if (current?.status === 'ACTIVE' && current.pricingVersion !== PRICING_VERSION) {
+      current.requoteReason = '计价规则已更新。请商家重新报价，或在创作页重新提交需求。';
+    }
+  }
   if (merchant) result.proposalEconomics = copy(workspace.proposalEconomics ?? []);
   return result;
 }
 function proposalBase(inquiry, capability, model, addressState, profile, now, revision) {
-  return { revision, status: 'ACTIVE', process: capability.process, capabilitySnapshot: copy(capability), modelHash: model.sha256, modelVersion: model.version ?? 1, capabilityId: capability.id, capabilityRevision: capability.revision, pricingRevision: profile.revision, addressRevision: addressState.addressRevision, shippingAddress: copy(addressState.address), createdAt: now, expiresAt: now + 900000, mode: 'DEMO_ONLY', payable: false, currency: 'CNY' };
+  return { revision, status: 'ACTIVE', process: capability.process, capabilitySnapshot: copy(capability), modelHash: model.sha256, modelVersion: model.version ?? 1, capabilityId: capability.id, capabilityRevision: capability.revision, pricingVersion: PRICING_VERSION, pricingRevision: profile.revision, addressRevision: addressState.addressRevision, shippingAddress: copy(addressState.address), createdAt: now, expiresAt: now + 900000, mode: 'DEMO_ONLY', payable: false, currency: 'CNY' };
 }
 function summarizePrice(manufacturingCents, shippingCents, quantity) {
   const platformFeeCents = Math.ceil(manufacturingCents * 700 / 10000);
@@ -94,38 +102,45 @@ function range(value, label) {
   return [...value];
 }
 function evidenceFor(workspace, inquiry, material, quality, hours, manualCost) {
-  const profile = getPricingProfile(workspace, inquiry.capabilitySnapshot.farmId), model = required(workspace.models, inquiry.modelId, 'MODEL');
-  let estimatedCostCents = manualCost, baseline = null;
-  const shape = geometry(model, inquiry.unit), batch = estimateBatch(shape.dimensions, inquiry.qty);
-  if (['PLA', 'PETG'].includes(material) && model.format === 'stl' && model.closed === true && !model.review && batch && shape.volume > 0) {
-    baseline = estimateBatchPrice({ profile: { ...profile, materialKey: material }, batch, singleWeightGrams: shape.volume * materials[material].density * (quality === 'fine' ? 1.1 : 1), quantity: inquiry.qty, quality });
+  const capability = inquiry.capabilitySnapshot, profile = getPricingProfile(workspace, capability.farmId);
+  const model = modelForPricing(required(workspace.models, inquiry.modelId, 'MODEL'));
+  const shape = geometry(model, inquiry.unit), batch = estimateBatch(shape.dimensions, inquiry.qty, capability.maxDimensions);
+  const sliced = findSliceEvidence(workspace, { modelId: model.id, modelHash: model.sha256, modelVersion: model.version ?? 1, qty: inquiry.qty, unit: inquiry.unit, material, farmId: capability.farmId, quality, deviceIds: capability.deviceIds });
+  let estimatedCostCents = manualCost, source = 'MERCHANT_COST_DECLARATION';
+  if (sliced) {
+    estimatedCostCents = Math.max(estimatedCostCents, sliced.economics.estimatedCostCents);
+    hours = Math.max(hours, sliced.economics.durationSeconds / 3600);
+    source = 'MERCHANT_WITH_SLICE_FLOOR';
+  } else if (['PLA', 'PETG'].includes(material) && model.format === 'stl' && model.closed === true && !model.review && batch && shape.volume > 0) {
+    const baseline = estimateBatchPrice({ profile: { ...profile, materialKey: material }, batch, singleWeightGrams: shape.volume * materials[material].density * (quality === 'fine' ? 1.1 : 1), quantity: inquiry.qty, quality });
     estimatedCostCents = Math.max(estimatedCostCents, baseline.estimatedCostCents);
     hours = Math.max(hours, baseline.productionHours);
+    source = 'MERCHANT_WITH_ESTIMATE_FLOOR';
   }
   const profitFloorCents = Math.max(profile.minimumOrderProfitCents, Math.ceil(hours * profile.minimumProfitCentsPerMachineHour));
   const minimumManufacturingCents = Math.max(Math.ceil(estimatedCostCents * 10000 / (10000 - profile.targetMarginBps)), estimatedCostCents + profitFloorCents, 1);
-  return { estimatedCostCents, profitFloorCents, minimumManufacturingCents, targetMarginBps: profile.targetMarginBps, minimumOrderProfitCents: profile.minimumOrderProfitCents, minimumProfitCentsPerMachineHour: profile.minimumProfitCentsPerMachineHour, pricingRevision: profile.revision, productionHoursForFloor: hours, source: baseline ? 'MERCHANT_WITH_ESTIMATE_FLOOR' : 'MERCHANT_COST_DECLARATION', mode: 'DEMO_ASSUMPTIONS' };
+  return { estimatedCostCents, profitFloorCents, minimumManufacturingCents, targetMarginBps: profile.targetMarginBps, minimumOrderProfitCents: profile.minimumOrderProfitCents, minimumProfitCentsPerMachineHour: profile.minimumProfitCentsPerMachineHour, pricingRevision: profile.revision, productionHoursForFloor: hours, source, ...(sliced ? { sliceEvidence: sliced.evidence } : {}), mode: 'DEMO_ASSUMPTIONS' };
 }
 export async function createInquiry(workspace, payload, now, idFactory, makeQuotes) {
   ack(payload);
   ensure(nonempty(payload.modelId) && ['mm', 'inch'].includes(payload.unit) && Number.isInteger(payload.qty) && payload.qty >= 1 && payload.qty <= 50, 400, 'INVALID_INQUIRY', '请选择模型、单位和 1–50 件的数量');
   ensure(payload.dimensionsConfirmed === true, 409, 'DIMENSIONS_CONFIRMATION_REQUIRED', '请确认模型单位和尺寸');
   ensure(payload.material === 'AUTO' || own(materials, payload.material), 400, 'INVALID_MATERIAL', '请选择材料或让商家推荐');
-  const model = required(workspace.models, payload.modelId, 'MODEL'), capability = capabilityOf(workspace, payload.capabilityId);
+  const model = modelForPricing(required(workspace.models, payload.modelId, 'MODEL')), capability = capabilityOf(workspace, payload.capabilityId);
   const normalizedGeometry = compatible(capability, model, payload.unit, payload.material);
   const requirements = requirementsOf(payload, now), addressState = requireShippingAddress(workspace);
   const list = workspace.inquiries ??= [];
   ensure(list.length < 500, 409, 'INQUIRY_CAPACITY', '沙盒最多保存 500 份需求');
   const inquiry = { id: 'INQ-' + idFactory(), revision: 1, status: 'AWAITING_MERCHANT', createdAt: now, updatedAt: now, modelId: model.id, modelSnapshot: snapshotModel(model), dimensionsMm: [...normalizedGeometry.dimensions], volumeCm3: normalizedGeometry.volume, capabilityId: capability.id, capabilitySnapshot: copy(capability), unit: payload.unit, qty: payload.qty, material: payload.material, requirements, dimensionsConfirmed: true, proposals: [], currentProposalRevision: null, orderId: null, mode: 'DEMO_ONLY' };
   list.push(inquiry);
-  const standard = capability.quoteMode === 'AUTO_ESTIMATE' && capability.process === 'FDM' && ['PLA', 'PETG'].includes(payload.material) && capability.qualities.includes('standard') && !Object.values(requirements).some(Boolean);
+  const standard = !model.review && capability.quoteMode === 'AUTO_ESTIMATE' && capability.process === 'FDM' && ['PLA', 'PETG'].includes(payload.material) && capability.qualities.includes('standard') && !Object.values(requirements).some(Boolean);
   if (standard) {
     const { quotes } = await makeQuotes(workspace, { modelId: model.id, material: payload.material, qty: payload.qty, unit: payload.unit, quality: 'standard', capabilityId: capability.id }, now, idFactory);
     const quote = quotes.find(q => q.farm.id === capability.farmId);
     if (quote && !quote.review) {
       const profile = getPricingProfile(workspace, capability.farmId);
       const dispatchDays = [Math.max(0, quote.days[0] - quote.transitDays[0]), Math.max(0, quote.days[1] - quote.transitDays[1])];
-      const proposal = { ...proposalBase(inquiry, capability, model, addressState, profile, now, 1), source: 'AUTO_ESTIMATE', material: payload.material, quality: 'standard', ...summarizePrice(quote.pricingSummary.manufacturingCents, quote.shippingCents, inquiry.qty), productionHours: quote.productionHours, dispatchDays, transitDays: [...quote.transitDays], arrivalDays: [...quote.days], note: '标准模型与模板匹配的沙盒估价；尚未进行真实切片与设备核验', quoteId: quote.quoteId };
+      const proposal = { ...proposalBase(inquiry, capability, model, addressState, profile, now, 1), source: 'AUTO_ESTIMATE', material: payload.material, quality: 'standard', ...summarizePrice(quote.pricingSummary.manufacturingCents, quote.shippingCents, inquiry.qty), productionHours: quote.productionHours, dispatchDays, transitDays: [...quote.transitDays], arrivalDays: [...quote.days], note: quote.sliceEvidence ? '按当前模型与工艺的切片结果估价，尚需实机核验。' : '按模型尺寸与演示工艺估价，尚未切片或核验设备。', quoteId: quote.quoteId };
       proposal.addressFingerprint = await termsDigest(addressState.address);
       quote.inquiryId = inquiry.id; quote.proposalRevision = 1; quote.capabilityId = capability.id; quote.capabilityRevision = capability.revision;
       const { fingerprint, ...terms } = quote; quote.fingerprint = await termsDigest(terms);
@@ -153,10 +168,11 @@ export async function saveProposal(workspace, payload, now) {
   ensure(dispatchDays[1] * 24 >= payload.productionHours, 400, 'INVALID_LEAD_TIME', '最晚发货时间不能短于预计制造工时');
   inquiry.capabilitySnapshot = copy(capability);
   const economics = evidenceFor(workspace, inquiry, payload.material, payload.quality, payload.productionHours, payload.estimatedCostCents);
+  ensure(dispatchDays[0] >= Math.floor(economics.productionHoursForFloor / 24), 400, 'INVALID_LEAD_TIME', '最早发货日期早于制造所需的完整天数，请调整交付计划');
   ensure(dispatchDays[1] * 24 >= economics.productionHoursForFloor, 400, 'INVALID_LEAD_TIME', '发货时间不能短于当前模板测算的制造工时，请调整交付计划或更新计价模板');
   ensure(payload.manufacturingCents >= economics.minimumManufacturingCents, 409, 'PROFIT_FLOOR_NOT_MET', '制造报价低于当前成本、目标毛利率或最低利润限制；最低制造报价为 ¥' + (economics.minimumManufacturingCents / 100).toFixed(2));
   const profile = getPricingProfile(workspace, capability.farmId), addressState = requireShippingAddress(workspace), revision = (inquiry.currentProposalRevision ?? 0) + 1;
-  const proposal = { ...proposalBase(inquiry, capability, model, addressState, profile, now, revision), source: 'MERCHANT_REVIEW', material: payload.material, quality: payload.quality, ...summarizePrice(payload.manufacturingCents, payload.shippingCents, inquiry.qty), productionHours: economics.productionHoursForFloor, dispatchDays, transitDays, arrivalDays: dispatchDays.map((n, i) => n + transitDays[i]), note: payload.note.trim() };
+  const proposal = { ...proposalBase(inquiry, capability, model, addressState, profile, now, revision), source: 'MERCHANT_REVIEW', ...(economics.sliceEvidence ? { sliceEvidence: copy(economics.sliceEvidence) } : {}), material: payload.material, quality: payload.quality, ...summarizePrice(payload.manufacturingCents, payload.shippingCents, inquiry.qty), productionHours: economics.productionHoursForFloor, dispatchDays, transitDays, arrivalDays: dispatchDays.map((n, i) => n + transitDays[i]), note: payload.note.trim() };
   proposal.addressFingerprint = await termsDigest(addressState.address);
   for (const old of inquiry.proposals) if (old.status === 'ACTIVE') old.status = 'SUPERSEDED';
   inquiry.proposals.push(proposal); inquiry.currentProposalRevision = revision; inquiry.revision++; inquiry.updatedAt = now; inquiry.status = 'AWAITING_CUSTOMER';
@@ -171,6 +187,7 @@ export async function acceptInquiry(workspace, payload, now, idFactory, createOr
   ensure(Number.isInteger(payload.proposalRevision) && payload.proposalRevision === inquiry.currentProposalRevision, 409, 'PROPOSAL_CHANGED', '报价方案已更新，请阅读并确认最新版本');
   const proposal = inquiry.proposals.find(p => p.revision === payload.proposalRevision);
   ensure(proposal?.status === 'ACTIVE', 409, 'PROPOSAL_CHANGED', '当前方案不可确认');
+  ensure(proposal.pricingVersion === PRICING_VERSION, 409, 'PRICING_CHANGED', '计价规则已更新，请商家重新报价，或在创作页重新提交需求');
   ensure(now < proposal.expiresAt, 409, 'PROPOSAL_EXPIRED', '方案已过期，请商家重新报价');
   const capability = capabilityOf(workspace, inquiry.capabilityId), model = required(workspace.models, inquiry.modelId, 'MODEL');
   compatible(capability, model, inquiry.unit, proposal.material);
@@ -185,6 +202,7 @@ export async function acceptInquiry(workspace, payload, now, idFactory, createOr
     ensure(workspace.quotes.length < 6000, 409, 'QUOTE_CAPACITY', '演示报价数量已达上限');
     const farm = farms.find(f => f.id === capability.farmId), device = workspace.devices.find(d => d.farm === farm.id), shape = geometry(model, inquiry.unit);
     const quote = { quoteId: 'Q-' + idFactory(), version: 'coforge-proposal-v8', mode: 'DEMO_ONLY', farm: copy(farm), modelId: model.id, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, materialKey: proposal.material, material: 0, machine: proposal.manufacturingCents / 100, finishing: 0, shipping: proposal.shippingCents / 100, service: proposal.platformFeeCents / 100, materialCents: 0, machineCents: proposal.manufacturingCents, finishingCents: 0, shippingCents: proposal.shippingCents, serviceCents: proposal.platformFeeCents, totalCents: proposal.totalCents, total: proposal.totalCents / 100, qty: inquiry.qty, quality: proposal.quality, unit: inquiry.unit, destination: addressState.destination, addressRevision: proposal.addressRevision, addressFingerprint: proposal.addressFingerprint, profileVersion: device?.profileVersion ?? 'UNVERIFIED', recipeVersion: device?.recipeVersion ?? 'UNVERIFIED', review: true, reviewReasons: ['PRODUCTION_VALIDATION_REQUIRED'], issuedAt: now, expiresAt: proposal.expiresAt, dimensions: shape.dimensions, volume: shape.volume, weight: 0, hours: proposal.productionHours / inquiry.qty, productionHours: proposal.productionHours, queueHours: 0, preparationDays: 0, transitDays: copy(proposal.transitDays), days: copy(proposal.arrivalDays), pricingVersion: PRICING_VERSION, pricingRevision: proposal.pricingRevision, pricingSummary: summarizePrice(proposal.manufacturingCents, proposal.shippingCents, inquiry.qty), inquiryId: inquiry.id, proposalRevision: proposal.revision, capabilityId: capability.id, capabilityRevision: capability.revision, ...quoteMarketContext(addressState.address, true), priceStatus: 'MERCHANT_SANDBOX_OFFER', payable: false, currency: 'CNY' };
+    if (proposal.sliceEvidence) quote.sliceEvidence = copy(proposal.sliceEvidence);
     quote.fingerprint = await termsDigest(quote); workspace.quotes.push(quote); quoteId = quote.quoteId;
   }
   const result = await createOrder(workspace, { quoteId, demoAcknowledged: true }, now, idFactory, { acceptedInquiryId: inquiry.id, acceptedProposalRevision: proposal.revision });

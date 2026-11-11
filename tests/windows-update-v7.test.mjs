@@ -49,7 +49,7 @@ test('update backs up overwritten code and preserves data, private settings and 
   for (const name of protectedFiles) assert.equal(await fs.readFile(path.join(f.target, name), 'utf8'), 'old private content:' + name);
   const receipt = JSON.parse(await fs.readFile(path.join(result.backup, 'UPDATE-RECEIPT.json'), 'utf8'));
   assert.equal(receipt.status, 'COMPLETE');
-  assert.deepEqual(receipt.added, ['dist/new-ui.js']);
+  assert.deepEqual(receipt.added, ['dist/new-ui.js', 'UPDATE-MANIFEST.json']);
   await assert.rejects(fs.stat(path.join(result.backup, 'code/data')));
 });
 

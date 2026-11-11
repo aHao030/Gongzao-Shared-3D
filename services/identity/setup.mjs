@@ -16,7 +16,9 @@ export async function setupIdentity({ directory = path.join(root, 'data/identity
     tokenEndpointAuthMethod: 'client_secret_post', providers: { keycloak: 'realm' },
     allowInsecureLoopbackIssuer: development
   };
-  validateOIDCConfig(oidc);
+  const validated = validateOIDCConfig(oidc);
+  publicOrigin = validated.publicOrigin;
+  oidc.publicOrigin = publicOrigin;
   if (new URL(issuer).pathname !== '/realms/gongzao')
     throw new Error('This generated realm uses the issuer path /realms/gongzao.');
   if (!development && (!publicOrigin.startsWith('https:') || !issuer.startsWith('https:')))

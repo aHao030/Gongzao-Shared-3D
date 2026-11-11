@@ -1,10 +1,11 @@
+import { CURRENT_MESH_ANALYSIS, needsMeshAnalysis, modelForPricing, analyzeModel, sha256, ApiError } from './geometry.mjs';
 import { getCapabilities, getInquiries, saveCapability, createInquiry, saveProposal, acceptInquiry } from './inquiries.mjs';
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
 import { ACCOUNTING_CURRENCY, quoteMarketContext } from './market.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
 import { PRICING_VERSION, getPricingProfile, savePricingProfile, estimateBatch, estimateBatchPrice, settlementBreakdown } from './pricing.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
-import { findSliceEvidence } from './operations.mjs';
+import { findSliceEvidence, orderSliceConstraints } from './operations.mjs';
 
 export class PlatformError extends Error {
   constructor(code, message, status = 409) { super(message); this.name = 'PlatformError'; this.code = code; this.status = status; }
@@ -26,7 +27,7 @@ const text = (value, limit = 160) => typeof value === 'string' && value.length >
 const reasonText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 500 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 const money = cents => cents / 100;
 const stamp = now => new Date(now).toISOString();
-const event = (order, label, now) => order.events.push({ label, time: stamp(now), at: now, simulated: true });
+const event = (order, label, now, kind) => order.events.push({ label, time: stamp(now), at: now, simulated: true, ...(kind ? { kind } : {}) });
 const find = (list, id, code) => { const item = list.find(item => item.id === id); check(item, code, '记录不存在', 404); return item; };
 const farmOf = id => farms.find(farm => farm.id === id);
 
@@ -38,7 +39,15 @@ export function getPublicWorkspace(workspace) {
 }
 const managedProduction = (workspace, orderId) => workspace.operations?.productions?.find(production => production.orderId === orderId);
 const productionOccupies = (workspace, deviceId) => workspace.operations?.productions?.some(production => production.deviceId === deviceId && !['CANCELLED','QC_PASSED','QC_FAILED'].includes(production.status));
-function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED' && !managedProduction(workspace,order.id)); }
+function requiresProductionCenter(workspace, order) {
+  if (order.productionRoute === 'PRODUCTION_CENTER') return true;
+  const { frozenSliceJobId, allowedDeviceIds, capabilityUnverified } = orderSliceConstraints(order, workspace);
+  return Boolean(frozenSliceJobId || allowedDeviceIds.length || capabilityUnverified);
+}
+function nextQueued(workspace, device) {
+  return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED'
+    && !managedProduction(workspace, order.id) && !requiresProductionCenter(workspace, order));
+}
 function project(order) {
   order.dispute = order.disputeState === 'OPEN';
   if (order.refundState === 'SIMULATED_REFUNDED') order.status = 'refunded';
@@ -86,21 +95,21 @@ function validateConfiguration(payload, destination) {
 async function makeQuotes(workspace, payload, now, idFactory) {
   const { address, addressRevision, destination } = requireShippingAddress(workspace);
   const addressFingerprint = await digest(address);
-  const config = validateConfiguration(payload, destination), model = find(workspace.models, config.modelId, 'MODEL_NOT_FOUND');
+  const config = validateConfiguration(payload, destination), model = modelForPricing(find(workspace.models, config.modelId, 'MODEL_NOT_FOUND'));
   const geometry = modelTerms(model, config.unit);
   const reviewReasons = [];
   if (model.review || model.closed !== true || model.format !== 'stl') reviewReasons.push('MODEL_REVIEW');
   if (!materials[config.material].auto) reviewReasons.push('PROCESS_REVIEW');
   if (config.destination === 'other') reviewReasons.push('DESTINATION_REVIEW');
   if (geometry.dimensions.some(n => n > 250) || geometry.volume <= 0) reviewReasons.push('GEOMETRY_REVIEW');
-  const batch = estimateBatch(geometry.dimensions, config.qty);
-  if (!batch && !reviewReasons.includes('GEOMETRY_REVIEW')) reviewReasons.push('PLATE_LAYOUT_REVIEW');
   const quotes = [];
   for (const farm of farms) {
     const device = workspace.devices.find(d => d.farm === farm.id);
     const capability = workspace.manufacturingCapabilities ? getCapabilities(workspace).capabilities.find(c => c.farmId === farm.id && (!payload.capabilityId || c.id === payload.capabilityId) && c.enabled && c.materials.includes(config.material) && c.qualities.includes(config.quality) && (geometry.dimensions.length !== 3 || geometry.dimensions.every((n, i) => n <= c.maxDimensions[i]))) : null;
     const configuredReasons = workspace.manufacturingCapabilities ? !capability ? ['CAPABILITY_UNAVAILABLE'] : capability.quoteMode === 'MERCHANT_REVIEW' ? ['CAPABILITY_REVIEW'] : [] : [];
+    const batch = estimateBatch(geometry.dimensions, config.qty, capability?.maxDimensions);
     const farmReviewReasons = [...reviewReasons, ...configuredReasons];
+    if (!batch && !farmReviewReasons.includes('GEOMETRY_REVIEW')) farmReviewReasons.push('PLATE_LAYOUT_REVIEW');
     const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, addressRevision, addressFingerprint, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: farmReviewReasons.length > 0, reviewReasons: farmReviewReasons, issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
     if (workspace.manufacturingCapabilities) Object.assign(q, { capabilityId: capability?.id ?? null, capabilityRevision: capability?.revision ?? null, capabilityUnavailable: !capability });
     Object.assign(q, quoteMarketContext(address, q.review), { currency: ACCOUNTING_CURRENCY, priceStatus: q.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
@@ -109,7 +118,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
       let weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
       const profile = getPricingProfile(workspace, farm.id);
       let economics = estimateBatchPrice({ profile: { ...profile, materialKey: config.material }, batch, singleWeightGrams: weight, quantity: config.qty, quality: config.quality });
-      const sliced = findSliceEvidence(workspace,{modelId:model.id,modelHash:model.sha256,qty:config.qty,unit:config.unit,material:config.material,farmId:farm.id,quality:config.quality});
+      const sliced = findSliceEvidence(workspace, { modelId: model.id, modelHash: model.sha256, modelVersion: model.version ?? 1, qty: config.qty, unit: config.unit, material: config.material, farmId: farm.id, quality: config.quality, deviceIds: capability?.deviceIds });
       let quotedBatch = batch;
       if (sliced) {
         const { job, economics: measured } = sliced, total = measured.suggestedManufacturingCents;
@@ -118,7 +127,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
         economics = {...measured,productionHours:measured.durationSeconds/3600,materialGrams:measured.materialGrams,manufacturingCents:total,saleMaterialCents,saleMachineCents,saleFinishingCents:total-saleMaterialCents-saleMachineCents,profitFloorCents:measured.minimumProfitCents,estimatedMarginBps:Number(BigInt(measured.estimatedProfitCents)*10000n/BigInt(total))};
         weight = measured.materialGrams/config.qty;
         quotedBatch = {...clone(batch),method:'SLICER_OUTPUT_ESTIMATE',plateCount:job.result.plateCount,verified:false,layoutVerified:false,partsPerPlate:null,capacityPerPlate:null};
-        q.sliceEvidence = {jobId:job.id,inputHash:job.inputHash,modelHash:job.modelHash,profileId:job.profileId,profileRevision:job.profileRevision,profileSha256:job.result.profileSha256,artifactHash:job.result.artifactHash,engineVersion:job.result.engineVersion,provenance:'WORKER_OBSERVED'};
+        q.sliceEvidence = sliced.evidence;
         q.estimateBasis='SLICER_OUTPUT';
       } else q.estimateBasis='DEMO_GEOMETRY_ESTIMATE';
       const { productionHours, manufacturingCents, saleMaterialCents: materialCents, saleMachineCents: machineCents, saleFinishingCents: finishingCents } = economics;
@@ -160,9 +169,10 @@ function registerModel(workspace, payload, now, idFactory) {
   const existing = workspace.models.find(model => model.id === id);
   if (existing) {
     check(existing.sha256 === payload.sha256 && existing.name === payload.name && existing.size === payload.size, 'MODEL_EXISTS', '该模型 ID 已绑定不同文件');
-    return { model: existing };
+    if (payload.format !== 'stl' || payload.analysisVersion !== CURRENT_MESH_ANALYSIS || existing.analysisVersion === payload.analysisVersion) return { model: existing };
+  } else {
+    check(workspace.models.length < 100, 'MODEL_CAPACITY', '演示模型最多保留 100 个');
   }
-  check(workspace.models.length < 100, 'MODEL_CAPACITY', '演示模型最多保留 100 个');
   const dimensions = payload.dimensions ?? [], volume = payload.volume ?? 0;
   const reviewed = payload.review === true || payload.format !== 'stl' || payload.closed !== true;
   check(Array.isArray(dimensions) && (dimensions.length === 0 || (dimensions.length === 3 && dimensions.every(n => Number.isFinite(n) && n > 0 && n <= 100000))) && Number.isFinite(volume) && volume >= 0, 'INVALID_GEOMETRY', '模型几何无效', 400);
@@ -170,8 +180,10 @@ function registerModel(workspace, payload, now, idFactory) {
   check(payload.faceCount === undefined || (Number.isInteger(payload.faceCount) && payload.faceCount >= 0 && payload.faceCount <= 100000), 'INVALID_GEOMETRY', '三角面数量无效', 400);
   check(payload.analysisVersion === undefined || text(payload.analysisVersion, 100), 'INVALID_MODEL_ANALYSIS', '模型分析版本无效', 400);
   check(payload.analysisNote === undefined || text(payload.analysisNote, 1000), 'INVALID_MODEL_ANALYSIS', '模型分析说明无效', 400);
-  const model = { analysisVersion: payload.analysisVersion ?? 'legacy-unversioned', analysisNote: payload.analysisNote ?? '历史模型记录，分析器版本未记录', id, name: payload.name, size: payload.size, sha256: payload.sha256, dimensions: [...dimensions], volume, closed: payload.closed === true, review: reviewed, format: payload.format, version: 1, createdAt: now, isSample: false, geometrySource: 'server-upload-parser', unit: 'mm', faceCount: payload.faceCount ?? 0 };
-  workspace.models.push(model); return { model };
+  const model = { analysisVersion: payload.analysisVersion ?? 'legacy-unversioned', analysisNote: payload.analysisNote ?? '历史模型记录，分析器版本未记录', id, name: payload.name, size: payload.size, sha256: payload.sha256, dimensions: [...dimensions], volume, closed: payload.closed === true, review: reviewed, format: payload.format, version: existing ? (existing.version ?? 1) + 1 : 1, createdAt: existing?.createdAt ?? now, isSample: false, geometrySource: 'server-upload-parser', unit: 'mm', faceCount: payload.faceCount ?? 0 };
+  if (existing) Object.assign(existing, model);
+  else workspace.models.push(model);
+  return { model };
 }
 async function createOrder(workspace, payload, now, idFactory, acceptedProposal = {}) {
   check(payload.demoAcknowledged === true, 'DEMO_ACK_REQUIRED', '请确认这是模拟订单');
@@ -180,8 +192,9 @@ async function createOrder(workspace, payload, now, idFactory, acceptedProposal 
   const quote = workspace.quotes.find(q => q.quoteId === payload.quoteId);
   check(quote, 'QUOTE_NOT_FOUND', '报价不存在，请重新获取', 404);
   check(!quote.inquiryId || (quote.inquiryId === acceptedProposal.acceptedInquiryId && quote.proposalRevision === acceptedProposal.acceptedProposalRevision), 'PROPOSAL_CONFIRMATION_REQUIRED', '请通过需求页面确认当前方案后下单');
+  let capability;
   if (workspace.manufacturingCapabilities || quote.capabilityId) {
-    const capability = getCapabilities(workspace).capabilities.find(c => c.id === quote.capabilityId);
+    capability = getCapabilities(workspace).capabilities.find(c => c.id === quote.capabilityId);
     check(capability && !quote.capabilityUnavailable && capability.enabled, 'CAPABILITY_UNAVAILABLE', '制造能力已暂停或不匹配，请重新选择制造方案');
     check(capability.revision === quote.capabilityRevision && capability.materials.includes(quote.materialKey) && capability.qualities.includes(quote.quality), 'CAPABILITY_CHANGED', '制造能力配置已更新，请重新报价');
   }
@@ -199,6 +212,8 @@ async function createOrder(workspace, payload, now, idFactory, acceptedProposal 
     check(currentProfile?.enabled && currentProfile.revision===evidence.profileRevision && (!currentProfile.expectedProfileSha256 || currentProfile.expectedProfileSha256===evidence.profileSha256), 'SLICE_PROFILE_CHANGED', '切片工艺已更新，请重新切片并测算费用');
   }
   const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, shippingAddress: clone(address), addressRevision, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
+  if (capability) order.capabilitySnapshot = clone(capability);
+  if (requiresProductionCenter(workspace, order)) order.productionRoute = 'PRODUCTION_CENTER';
   // Older valid v0.6 quotes lack a market snapshot; derive their context from
   // the verified stored address, never from an order's client-supplied fields.
   const marketContext = quote.market && quote.paymentContext ? { market: clone(quote.market), paymentContext: clone(quote.paymentContext) } : quoteMarketContext(address, quote.review);
@@ -263,11 +278,18 @@ function act(workspace, payload, now, idFactory) {
   }
   if (action === 'ship') {
     check(order.productionState === 'QC_PASSED' && order.logisticsState === 'NONE' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState !== 'OPEN' && ['NONE', 'REJECTED'].includes(order.refundState), 'SHIPMENT_NOT_ALLOWED', '仅质检通过、款项冻结且无待处理退款或争议的未发货订单可以发货');
-    check(text(payload.carrier, 80) && /^DEMO-[A-Za-z0-9-]{3,27}$/.test(payload.trackingNumber ?? ''), 'INVALID_TRACKING', '请输入承运商及 DEMO- 开头的演示运单', 400);
-    order.courier = payload.carrier; order.tracking = payload.trackingNumber; order.logisticsState = 'SHIPPED'; event(order, '模拟承运商已揽收', now);
+    const carrier = typeof payload.carrier === 'string' ? payload.carrier.trim() : '';
+    check(text(payload.carrier, 80) && carrier && text(payload.trackingNumber, 32) && /^DEMO-[A-Za-z0-9-]{3,27}$/.test(payload.trackingNumber), 'INVALID_TRACKING', '请输入承运商及 DEMO- 开头的演示运单', 400);
+    order.courier = carrier;
+    order.tracking = payload.trackingNumber;
+    order.logisticsState = 'SHIPPED';
+    order.shippedAt = now;
+    event(order, '模拟承运商已揽收', now, 'SHIPMENT');
   } else if (action === 'deliver') {
     check(order.logisticsState === 'SHIPPED', 'DELIVERY_NOT_ALLOWED', '订单尚未发货或已送达');
-    order.logisticsState = 'DELIVERED'; event(order, '模拟物流签收，等待客户验收', now);
+    order.logisticsState = 'DELIVERED';
+    order.deliveredAt = now;
+    event(order, '模拟物流签收，等待客户验收', now, 'DELIVERY');
   } else if (action === 'accept') {
     check(payload.customerAccepted === true, 'ACCEPTANCE_REQUIRED', '必须明确确认收货验收');
     check(order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.acceptanceState === 'PENDING' && order.settlementState === 'NOT_REQUESTED' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState), 'SETTLEMENT_BLOCKED', '生产、交付、付款或争议条件尚不满足验收');
@@ -334,12 +356,13 @@ function act(workspace, payload, now, idFactory) {
     dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   } else if (action === 'dispute') {
     check(typeof payload.open === 'boolean', 'INVALID_INPUT', 'open 必须为布尔值', 400);
-    check(order.paymentState === 'SIMULATED_FROZEN' && order.productionState !== 'CANCELLED' && ['NOT_REQUESTED', 'READY', 'FAILED'].includes(order.settlementState), 'DISPUTE_NOT_ALLOWED', '仅已付款且未提交结算的有效订单可以处理争议');
+    const canOpenDispute = order.paymentState === 'SIMULATED_FROZEN' && order.productionState !== 'CANCELLED' && ['NOT_REQUESTED', 'READY', 'FAILED'].includes(order.settlementState);
+    check(canOpenDispute || (!payload.open && order.disputeState === 'OPEN'), 'DISPUTE_NOT_ALLOWED', '仅已付款且未提交结算的有效订单可以发起争议');
     check((order.disputeState === 'OPEN') !== payload.open, 'NO_STATE_CHANGE', '争议状态未变化');
     order.disputeState = payload.open ? 'OPEN' : 'NONE'; event(order, payload.open ? '已开启演示争议，暂停派发、发货与结算，运行中的设备不会自动停机' : '演示争议已撤销，其他待处理退款仍会阻止结算', now);
     if (order.productionState === 'QUEUED') dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   } else if (action === 'cancel') {
-    check(['REVIEW_REQUIRED', 'QUEUED'].includes(order.productionState), 'CANCELLATION_NOT_ALLOWED', '已开始生产的订单不能直接取消');
+    check(['REVIEW_REQUIRED', 'QUEUED'].includes(order.productionState) && ['UNPAID', 'SIMULATED_FROZEN'].includes(order.paymentState), 'CANCELLATION_NOT_ALLOWED', '仅未生产且尚未退款的订单可以取消');
     order.productionState = 'CANCELLED';
     if (order.paymentState === 'SIMULATED_FROZEN' && order.refundState !== 'REQUESTED') {
       order.refundState = 'REQUESTED';
@@ -352,7 +375,7 @@ function act(workspace, payload, now, idFactory) {
   project(order); return { order };
 }
 
-export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID() } = {}) {
+export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID(), loadModelBytes } = {}) {
   check(command && typeof command === 'object' && !Array.isArray(command), 'INVALID_INPUT', '命令无效', 400);
   const { type, payload = {}, idempotencyKey } = command;
   check(['register-model', 'quote', 'order', 'action', 'customer-profile', 'pricing-profile', 'capability', 'inquiry', 'proposal', 'accept-inquiry'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
@@ -363,11 +386,30 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
   const requestDigest = await digest({ type, payload });
   if (own(original.idempotency, idempotencyKey)) {
     const cached = original.idempotency[idempotencyKey];
-    check(cached.digest === requestDigest, 'IDEMPOTENCY_CONFLICT', '同一幂等标识不能用于不同请求');
+    // Across an analysis upgrade, a retried upload is still the same wire request.
+    const oldModel = type === 'register-model' ? cached.result?.model : null;
+    const sameUpload = oldModel && oldModel.analysisVersion !== payload.analysisVersion &&
+      ['id', 'name', 'size', 'sha256', 'format'].every(field => oldModel[field] === payload[field]);
+    check(cached.digest === requestDigest || sameUpload, 'IDEMPOTENCY_CONFLICT', '同一幂等标识不能用于不同请求');
     return { workspace: original, result: clone(cached.result), replayed: true };
   }
   check(Object.keys(original.idempotency).length < 2000, 'IDEMPOTENCY_CAPACITY', '演示空间操作记录已达 2000 条，请创建新的演示空间');
   const workspace = clone(original);
+  if ((type === 'quote' || type === 'inquiry') && loadModelBytes) {
+    const oldModel = workspace.models.find(model => model.id === payload.modelId);
+    if (needsMeshAnalysis(oldModel)) {
+      const bytes = await loadModelBytes(oldModel.id);
+      if (bytes?.byteLength === oldModel.size && await sha256(bytes) === oldModel.sha256) {
+        let analysis;
+        try { analysis = await analyzeModel(bytes, oldModel.name); }
+        catch (error) {
+          // Older uploads that cannot pass the current parser remain eligible for engineering review.
+          if (!(error instanceof ApiError)) throw error;
+        }
+        if (analysis) registerModel(workspace, { ...analysis, id: oldModel.id }, now, idFactory);
+      }
+    }
+  }
   let result;
   if (type === 'capability') result = saveCapability(workspace, payload, now, idFactory);
   else if (type === 'inquiry') result = await createInquiry(workspace, payload, now, idFactory, makeQuotes);

@@ -52,6 +52,12 @@ export function createInternationalUI({get,escape:esc}) {
     container.innerHTML=fieldsHTML({...previous,countryCode:country,province:'',city:'',district:'',postalCode:''});
     root.querySelector('#customer-country')?.focus({preventScroll:true});
   }
+  function selectKnownCountry(code,root=document){
+    const country=String(code).trim().toUpperCase();
+    if(!/^[A-Z]{2}$/.test(country)||marketFor(country)?.countryCode!==country)return false;
+    changeCountry(country,root);
+    return true;
+  }
   function validateAddressFields(address={}){
     const errors={},countryCode=typeof address.countryCode==='string'?address.countryCode.trim().toUpperCase():'';
     if(!/^[A-Z]{2}$/.test(countryCode))errors['customer-country-code']='请填写两位字母的国家 / 地区代码，例如 IT。';
@@ -74,5 +80,5 @@ export function createInternationalUI({get,escape:esc}) {
     return errors;
   }
   function validateAddress(address){return Object.values(validateAddressFields(address))[0]||'';}
-  return {load,marketFor,options,paymentHTML,fieldsHTML,readAddress,changeCountry,validateAddress,validateAddressFields};
+  return {load,marketFor,options,paymentHTML,fieldsHTML,readAddress,changeCountry,selectKnownCountry,validateAddress,validateAddressFields};
 }

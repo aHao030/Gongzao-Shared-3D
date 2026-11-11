@@ -6,14 +6,15 @@
     <view wx:if="{{loading}}" class="card muted">正在读取账号资料与国家配置…</view>
     <view wx:if="{{error}}" class="card danger">{{error}}<button wx:if="{{!marketsReady && !loading}}" class="secondary" bindtap="onShow">重新读取</button></view>
     <view wx:if="{{!loading && marketsReady}}" class="card">
-      <view class="label">昵称（选填）</view><input class="field" value="{{form.displayName}}" data-field="displayName" bindinput="changeField" maxlength="80" disabled="{{saving}}" />
+      <view class="label">昵称（选填）</view><input class="field" value="{{form.displayName}}" data-field="displayName" bindinput="changeField" maxlength="80" disabled="{{saving}}" /><view wx:if="{{fieldErrors.displayName}}" class="field-error">{{fieldErrors.displayName}}</view>
       <view class="label">国家或地区 <text class="required">*</text></view>
       <picker range="{{countryOptions}}" range-key="name" value="{{countryIndex}}" bindchange="changeCountry" disabled="{{saving}}"><view class="field country-picker">{{countryOptions[countryIndex].name}}<text class="picker-arrow">⌄</text></view></picker>
-      <block wx:if="{{otherCountry}}"><view class="label">实际国家或地区代码 <text class="required">*</text></view><input class="field" value="{{form.countryCode}}" data-field="countryCode" bindinput="changeField" maxlength="2" placeholder="两位英文字母，例如 BR" disabled="{{saving}}" /></block>
+      <block wx:if="{{otherCountry}}"><view class="label">实际国家或地区代码 <text class="required">*</text></view><input class="field" value="{{form.countryCode}}" data-field="countryCode" bindinput="changeField" maxlength="2" placeholder="两位英文字母，例如 BR" disabled="{{saving}}" /><view wx:if="{{fieldErrors.countryCode}}" class="field-error">{{fieldErrors.countryCode}}</view></block>
       <block wx:for="{{addressFields}}" wx:key="key">
         <view class="label">{{item.label}} <text wx:if="{{item.required}}" class="required">*</text><text wx:if="{{item.showOptional}}" class="optional">（选填）</text></view>
         <textarea wx:if="{{item.key === 'addressLine'}}" class="field" value="{{form[item.key]}}" data-field="{{item.key}}" bindinput="changeField" maxlength="{{item.maxlength}}" placeholder="{{item.placeholder}}" disabled="{{saving}}" />
         <input wx:else class="field" value="{{form[item.key]}}" data-field="{{item.key}}" bindinput="changeField" maxlength="{{item.maxlength}}" placeholder="{{item.placeholder}}" disabled="{{saving}}" />
+        <view wx:if="{{fieldErrors[item.key]}}" class="field-error">{{fieldErrors[item.key]}}</view>
         <view wx:if="{{item.key === 'phone'}}" class="muted phone-hint">{{item.placeholder}}</view>
       </block>
       <view class="muted address-note">{{addressNote}}</view>
