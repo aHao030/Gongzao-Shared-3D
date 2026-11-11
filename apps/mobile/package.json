@@ -1,0 +1,24 @@
+{
+  "name": "@shared-fabrication/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor 8 wrapper source for the shared fabrication web demo; no binaries included",
+  "scripts": {
+    "sync": "cap sync",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/ios": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

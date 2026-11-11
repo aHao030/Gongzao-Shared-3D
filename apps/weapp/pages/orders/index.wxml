@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="eyebrow">MADE. TRACKED. DELIVERED.</view><view class="title"><view>每一步，</view><view>都有迹可循。</view></view>
+  <view class="demo-note">手动推进演示状态，不连接真实生产、物流或资金系统。真实结算须由服务端校验。</view>
+  <view wx:if="{{orders.length === 0}}" class="card empty"><view class="empty-title">还没有演示订单</view><view class="muted">选择模型与工坊，体验完整交付流程。</view><button class="primary" bindtap="goUpload">创建演示订单</button></view>
+  <view wx:for="{{orders}}" wx:key="id" wx:for-item="order" class="card">
+    <view class="row"><view class="section-title">{{order.modelName}}</view><view class="badge">演示</view></view>
+    <view class="muted small">{{order.id}}</view><view class="divider"></view>
+    <view class="row"><view><view>{{order.farm}}</view><view class="muted">{{order.material}} · {{order.quantity}} 件</view></view><view class="price">¥{{order.price}}</view></view>
+    <view class="demo-note">{{order.reviewNote}}</view>
+    <view wx:for="{{order.timeline}}" wx:key="number" wx:for-item="step" class="step {{step.done ? 'active' : ''}}"><text class="step-number">{{step.done ? '✓' : step.number}}</text>{{step.label}}</view>
+    <view class="card-foot">物流：{{order.logistics}}</view><view class="card-foot">资金：{{order.settlement}}</view>
+    <button wx:if="{{order.canAdvance}}" class="secondary" data-id="{{order.id}}" bindtap="advance">模拟下一阶段 →</button>
+    <view wx:else class="demo-note">演示流程已结束 · 未发生任何真实交易</view>
+  </view>
+  <button wx:if="{{orders.length > 0}}" class="ghost danger" bindtap="clear">清空本机演示订单</button>
+</view>

@@ -1,0 +1,14 @@
+{
+  "description": "共造原生微信小程序演示；仅本地示例数据",
+  "miniprogramRoot": "./",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "shared-fabrication-demo",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": false
+  }
+}

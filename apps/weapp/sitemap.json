@@ -1,0 +1,9 @@
+{
+  "desc": "演示项目不收录",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "./",
+  "name": "共造 共享3D打印",
+  "short_name": "共造",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#087f8c",
+  "description": "共享制造平台交互演示",
+  "icons": [{"src":"./app-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}

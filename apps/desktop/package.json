@@ -1,0 +1,17 @@
+{
+  "name": "@shared-fabrication/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tauri 2 wrapper source; native binaries are not built",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon ./app-icon.svg --output ./src-tauri/icons",
+    "predev": "npm run icons",
+    "prebuild": "npm run icons"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

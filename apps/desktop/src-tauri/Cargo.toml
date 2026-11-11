@@ -1,0 +1,16 @@
+[package]
+name = "shared-fabrication-desktop"
+version = "0.1.0"
+description = "Desktop wrapper for the shared fabrication demo"
+authors = ["Shared Fabrication Project"]
+edition = "2021"
+
+[lib]
+name = "shared_fabrication_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

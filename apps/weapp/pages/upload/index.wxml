@@ -1,0 +1,19 @@
+<view class="page">
+  <view class="eyebrow">共造 · 共享3D打印</view>
+  <view class="title"><view>让想法，</view><view>成为手中的实物。</view></view>
+  <view class="subtitle">从模型到制造，再到交付。一处查看每一步。</view>
+  <view class="demo-note">交互演示 · 仅使用内置示例模型；不会上传图纸、调用真实设备或收取费用。</view>
+  <view class="card">
+    <view class="row"><view><view class="section-title">01 选择示例零件</view><view class="muted">桌面连接件 · 40 × 30 × 20 mm</view></view><view class="model-icon">◇</view></view>
+    <button class="secondary" bindtap="selectSample">{{sampleSelected ? '示例模型已选择 ✓' : '使用内置示例模型'}}</button>
+    <view class="muted small">正式版将接入模型上传与校验。本演示不解析 STL、STEP 或任意文件。</view>
+  </view>
+  <view class="card">
+    <view class="section-title">02 设置加工需求</view><view class="space"></view>
+    <view class="label">材料 / 工艺</view>
+    <picker mode="selector" range="{{materials}}" value="{{materialIndex}}" bindchange="changeMaterial"><view class="field">{{materials[materialIndex]}}　⌄</view></picker>
+    <view class="label">数量（1–100 件）</view><input class="field" type="number" maxlength="3" value="{{quantity}}" bindinput="changeQuantity" />
+    <button class="primary" bindtap="generateQuotes">查看示例报价 →</button>
+  </view>
+  <view class="muted small">示例报价和时间仅用于交互演示。金属打印与 CNC 正式订单必须先经商家工程审核和现场检查，再安排生产。</view>
+</view>

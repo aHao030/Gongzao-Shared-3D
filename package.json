@@ -1,0 +1,14 @@
+{
+  "name": "gongzao-shared-fabrication",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "共造共享制造平台交互原型与跨端工程起点",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node tools/check.mjs",
+    "api:demo": "node services/api/server.mjs"
+  }
+}

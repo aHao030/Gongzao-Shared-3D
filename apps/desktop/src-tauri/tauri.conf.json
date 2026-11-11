@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "共造",
+  "version": "0.1.0",
+  "identifier": "com.example.sharedfabrication",
+  "build": {
+    "frontendDist": "../../../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "共造 · 演示",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 360,
+        "minHeight": 620
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

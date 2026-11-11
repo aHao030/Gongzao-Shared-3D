@@ -1,0 +1,35 @@
+{
+  "pages": [
+    "pages/upload/index",
+    "pages/quotes/index",
+    "pages/orders/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "共造 · 演示",
+    "navigationBarBackgroundColor": "#f5f7f3",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f7f3"
+  },
+  "tabBar": {
+    "color": "#6b7f7b",
+    "selectedColor": "#087f73",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/upload/index",
+        "text": "定制"
+      },
+      {
+        "pagePath": "pages/quotes/index",
+        "text": "报价"
+      },
+      {
+        "pagePath": "pages/orders/index",
+        "text": "订单"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}
