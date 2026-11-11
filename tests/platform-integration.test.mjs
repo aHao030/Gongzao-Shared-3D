@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createPlatformServer } from '../services/platform/local.mjs';
+import { customerProfileFixture } from './helpers/customer-fixture.mjs';
 
 // These are loopback HTTP integration tests against disposable SQLite databases.
 // They do not contact payment providers, physical machines, or a hosted D1 database.
@@ -50,7 +51,10 @@ async function harness(t) {
     assert.ok(setCookie, 'new local session sets a cookie');
     assert.match(setCookie, /HttpOnly/i);
     assert.match(setCookie, /SameSite=/i);
-    return setCookie.split(';')[0];
+    const cookie = setCookie.split(';')[0];
+    const profile = await request('/api/v2/customer/profile', { cookie, method: 'POST', body: customerProfileFixture(), idempotencyKey: key() });
+    assert.equal(profile.status, 200, JSON.stringify(profile.body));
+    return cookie;
   };
   const workspace = async cookie => {
     const result = await request('/api/v2/workspace', { cookie });

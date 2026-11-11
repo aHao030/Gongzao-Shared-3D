@@ -29,11 +29,13 @@ try {
   if (!sessionResponse.ok) throw new Error(`session failed: ${sessionResponse.status}`);
   const cookie = sessionResponse.headers.get('set-cookie')?.split(';')[0];
   if (!cookie) throw new Error('session did not set a cookie');
+  const profileResponse = await fetch(base + '/api/v2/customer/profile', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() }, body: JSON.stringify({ displayName: '负载测试', setupCompleted: true, shippingAddress: { recipient: '测试收件人', phone: '00000000000', countryCode: 'CN', province: '浙江省', city: '测试市', district: '测试区', addressLine: '测试地址 1 号', postalCode: '' } }) });
+  if (!profileResponse.ok) throw new Error(`profile setup failed: ${profileResponse.status}`);
   const wsResponse = await fetch(base + '/api/v2/workspace', { headers: { Cookie: cookie } });
   const initial = await wsResponse.json();
   const modelId = initial.workspace.models.find(model => model.isSample)?.id;
   if (!modelId) throw new Error('sample model unavailable');
-  const payload = JSON.stringify({ modelId, material: 'PLA', qty: 1, quality: 'standard', unit: 'mm', destination: 'east' });
+  const payload = JSON.stringify({ modelId, material: 'PLA', qty: 1, quality: 'standard', unit: 'mm' });
   const postQuote = () => fetch(base + '/api/v2/quotes', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() }, body: payload });
   const warmup = await postQuote(); await warmup.arrayBuffer();
   if (!warmup.ok) throw new Error(`warmup failed: ${warmup.status}`);

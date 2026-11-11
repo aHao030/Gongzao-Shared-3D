@@ -10,23 +10,42 @@ export class ApiError extends Error {
 
 const API_ROOT = '/api/v2';
 const PENDING_KEY = 'coforge.pending-requests.v2';
-let pending = {};
-try { pending = JSON.parse(sessionStorage.getItem(PENDING_KEY) || '{}'); } catch {}
+const isDigest = value => /^[a-f0-9]{64}$/.test(value);
+const isRequestKey = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{8,128}$/.test(value);
+const pending = Object.create(null);
+const volatileRequests = new Map();
+try {
+  const saved = JSON.parse(sessionStorage.getItem(PENDING_KEY) || '{}');
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+    for (const [identity, key] of Object.entries(saved)) {
+      if (isDigest(identity) && isRequestKey(key)) pending[identity] = key;
+    }
+  }
+} catch {}
 function remember() {
   try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending)); } catch {}
 }
+// Remove legacy plaintext request identities and malformed stored entries.
+remember();
 async function fingerprint(path, method, body) {
   const prefix = new TextEncoder().encode(method + ':' + path + ':');
   const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body ? new Uint8Array(body) : new Uint8Array();
   const merged = new Uint8Array(prefix.length + bytes.length);
   merged.set(prefix); merged.set(bytes, prefix.length);
   if (globalThis.crypto?.subtle) {
-    const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', merged));
-    return [...hash].map(x => x.toString(16).padStart(2, '0')).join('');
+    try {
+      const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', merged));
+      return { id: [...hash].map(x => x.toString(16).padStart(2, '0')).join(''), persistent: true };
+    } catch { /* Some WebViews expose SubtleCrypto but cannot use it. */ }
   }
-  // An unsecure local file cannot reach the hosted API. This fallback only
-  // retains the same task identity within the current page session.
-  return path + ':' + method + ':' + (typeof body === 'string' ? body : bytes.length);
+  // Without a secure digest, compare complete request bytes in memory only.
+  // Never persist address fields, model filenames, or raw request content.
+  for (const entry of volatileRequests.values()) {
+    if (entry.bytes.length === merged.length && entry.bytes.every((value, index) => value === merged[index])) return entry;
+  }
+  const entry = { id: uniqueKey(), key: uniqueKey(), persistent: false, bytes: merged };
+  volatileRequests.set(entry.id, entry);
+  return entry;
 }
 function uniqueKey() {
   return globalThis.crypto?.randomUUID?.() || 'request-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -69,15 +88,18 @@ export async function prepareMutation(path, payload, options = {}) {
   };
   // File name is part of request identity, not merely the file's byte content.
   const identity = await fingerprint(path + ':' + JSON.stringify(headers), 'POST', body);
-  const key = pending[identity] || uniqueKey();
-  pending[identity] = key;
-  remember();
+  const key = identity.persistent ? pending[identity.id] || uniqueKey() : identity.key;
+  if (identity.persistent) { pending[identity.id] = key; remember(); }
   return {
     path, key,
     async execute() {
       const result = await send(path, { method: 'POST', body, headers: { ...headers, 'Idempotency-Key': key } });
-      delete pending[identity];
-      remember();
+      if (identity.persistent) {
+        // A late duplicate completion must not remove a newer request's key.
+        if (pending[identity.id] === key) { delete pending[identity.id]; remember(); }
+      } else if (volatileRequests.get(identity.id) === identity) {
+        volatileRequests.delete(identity.id);
+      }
       return result;
     }
   };

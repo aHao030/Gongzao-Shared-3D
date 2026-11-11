@@ -2,7 +2,8 @@
   "pages": [
     "pages/upload/index",
     "pages/quotes/index",
-    "pages/orders/index"
+    "pages/orders/index",
+    "pages/profile/index"
   ],
   "window": {
     "navigationBarTitleText": "共造 · 演示",

@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.2 服务端沙盒 API",
-    "version": "0.2.0",
-    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key."
+    "title": "共造 v0.4 客户与履约沙盒 API（/api/v2）",
+    "version": "0.4.0",
+    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md."
   },
   "servers": [
     {
@@ -192,7 +192,7 @@
       "post": {
         "operationId": "createQuotes",
         "summary": "Create sandbox quotes for all current farms",
-        "description": "15-minute immutable terms. materialKey is selected material; material is RMB yuan cost. Review-only zero amounts are unpriced, not free. No real slicer is called.",
+        "description": "15-minute immutable terms. materialKey is selected material; material is RMB yuan cost. Review-only zero amounts are unpriced, not free. No real slicer is called. A saved shipping address is mandatory (ADDRESS_REQUIRED). Destination comes from that address; an inconsistent client value is DESTINATION_MISMATCH. New quotes bind addressRevision/addressFingerprint without duplicating full delivery details.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -230,7 +230,7 @@
       "post": {
         "operationId": "createOrder",
         "summary": "Create a sandbox order from one unused quote",
-        "description": "Verifies quote expiry/fingerprint/model version. Automatically sets simulated payment frozen for auto-flow orders and attempts simulated dispatch. Review-only orders stay UNPAID. No real funds or device commands.",
+        "description": "Verifies quote expiry/fingerprint/model version. Automatically sets simulated payment frozen for auto-flow orders and attempts simulated dispatch. Review-only orders stay UNPAID. No real funds or device commands. Also validates current address revision and fingerprint; persists immutable shippingAddress snapshot. Old address-less quotes cannot create new orders.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -292,6 +292,97 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/customer/profile": {
+      "get": {
+        "operationId": "getCustomerProfile",
+        "summary": "Read saved customer account details and delivery address",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped profile. Missing profile returns null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerProfileResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "saveCustomerProfile",
+        "summary": "Save or explicitly defer customer delivery details",
+        "description": "Owner-scoped complete replacement, protected by the existing durable idempotency ledger. Address changes increment addressRevision and invalidate unused quotes. Sandbox reset preserves this profile. Replay returns original result plus current workspace; use workspace.customerProfile for current state.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerProfileRequest"
+              },
+              "example": {
+                "displayName": "测试用户",
+                "setupCompleted": true,
+                "shippingAddress": {
+                  "recipient": "测试收件人",
+                  "phone": "13800000000",
+                  "countryCode": "CN",
+                  "province": "浙江省",
+                  "city": "杭州市",
+                  "district": "西湖区",
+                  "addressLine": "测试路1号",
+                  "postalCode": ""
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Owner-scoped profile. Missing profile returns null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerProfileMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state conflict. Address errors include INVALID_PROFILE / INVALID_ADDRESS (400), ADDRESS_REQUIRED / ADDRESS_CHANGED / DESTINATION_MISMATCH (409).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Validation or state conflict. Address errors include INVALID_PROFILE / INVALID_ADDRESS (400), ADDRESS_REQUIRED / ADDRESS_CHANGED / DESTINATION_MISMATCH (409).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -375,7 +466,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.2.0",
+            "const": "0.4.0",
             "type": "string"
           },
           "mode": {
@@ -1031,6 +1122,16 @@
           "usedByOrderId": {
             "type": "string",
             "description": "Internal consumption marker may appear in later snapshots; not required in newly issued quotes."
+          },
+          "addressRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Present on all new v0.4 records. Historical v0.3 records may omit it."
+          },
+          "addressFingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 of normalized delivery details, bound into the quote fingerprint. Consistency check, not anonymization. Present on new v0.4 quotes."
           }
         },
         "required": [
@@ -1279,6 +1380,15 @@
           "tracking": {
             "type": "string",
             "pattern": "^DEMO-[A-Za-z0-9-]{3,27}$"
+          },
+          "addressRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Present on all new v0.4 records. Historical v0.3 records may omit it."
+          },
+          "shippingAddress": {
+            "$ref": "#/components/schemas/ShippingAddress",
+            "description": "Immutable delivery snapshot at order creation; later profile edits do not change it. Historical orders may omit it."
           }
         },
         "required": [
@@ -1309,7 +1419,7 @@
           "dispute",
           "events"
         ],
-        "description": "Independent production/payment/logistics/acceptance/settlement/dispute/refund states. status is a UI projection, not the authority for transition validation."
+        "description": "Independent production/payment/logistics/acceptance/settlement/dispute/refund states. status is a UI projection, not the authority for transition validation. New orders persist shippingAddress and addressRevision; older orders are not backfilled with invented delivery details."
       },
       "Workspace": {
         "type": "object",
@@ -1335,15 +1445,26 @@
             "items": {
               "$ref": "#/components/schemas/Model"
             }
+          },
+          "customerProfile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "revision",
           "orders",
           "devices",
-          "models"
+          "models",
+          "customerProfile"
         ],
-        "description": "Owner-private public projection. Quotes, idempotency ledger and blob keys are omitted."
+        "description": "Owner-private public projection. Quotes, idempotency ledger and blob keys are omitted. Includes owner-private customerProfile and order delivery snapshots; these must not be exposed to another owner."
       },
       "WorkspaceResponse": {
         "type": "object",
@@ -1481,26 +1602,19 @@
             "description": "Omitted or null uses the default."
           },
           "destination": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "east",
-                  "south",
-                  "north",
-                  "other"
-                ]
-              },
-              {
-                "type": "null"
-              }
+            "type": "string",
+            "enum": [
+              "east",
+              "south",
+              "north",
+              "other"
             ],
-            "default": "east",
-            "description": "Omitted or null uses the default."
+            "deprecated": true,
+            "description": "Prefer omission: derived from saved customer address. If present must exactly match; null or a mismatch returns DESTINATION_MISMATCH. No default."
           }
         },
         "required": [],
-        "description": "All fields optional. Server chooses all three sandbox farms. Client prices and geometry are not accepted as authoritative."
+        "description": "Creation options are optional, but a complete saved shipping address is required. Server derives destination and chooses sandbox farms. Client prices and geometry are not authoritative."
       },
       "OrderRequest": {
         "type": "object",
@@ -1520,7 +1634,7 @@
           "quoteId",
           "demoAcknowledged"
         ],
-        "description": "No client fingerprint or amount required. Snapshot, expiry, one-time use and model version are checked server-side."
+        "description": "No client fingerprint or amount required. Snapshot, expiry, one-time use and model version are checked server-side. Saved shipping address must still match quote addressRevision and addressFingerprint; otherwise ADDRESS_CHANGED, or ADDRESS_REQUIRED if absent."
       },
       "ActionRequest": {
         "type": "object",
@@ -1757,7 +1871,7 @@
             }
           }
         ],
-        "description": "Owner sandbox may perform both customer and farm actions. id targets a device for complete-print/prepare-device/set-device-paused, otherwise an order; reset needs no id. False paused is rejected; use prepare-device to resume."
+        "description": "Owner sandbox may perform both customer and farm actions. id targets a device for complete-print/prepare-device/set-device-paused, otherwise an order; reset needs no id. False paused is rejected; use prepare-device to resume. Reset preserves customer delivery profile and merchant registration."
       },
       "ModelResponse": {
         "allOf": [
@@ -1851,6 +1965,185 @@
           }
         ],
         "description": "Contains order and/or device depending on action; reset returns reset=true. Updated workspace is always present."
+      },
+      "ShippingAddress": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "phone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 40,
+            "pattern": "^[+\\d ()-]+$",
+            "description": "Trimmed; 5–20 digits; + only at the first position. No SMS verification."
+          },
+          "countryCode": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "Normalized to uppercase; no external country/postal validation."
+          },
+          "province": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "CN requires one of 31 mainland provinces/regions/municipalities. Accepted short names are normalized to official full names."
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "district": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "CN requires non-empty district; elsewhere omitted becomes empty."
+          },
+          "addressLine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "postalCode": {
+            "type": "string",
+            "maxLength": 20,
+            "default": ""
+          }
+        },
+        "required": [
+          "recipient",
+          "phone",
+          "countryCode",
+          "province",
+          "city",
+          "addressLine"
+        ],
+        "description": "Trimmed delivery details; control characters rejected. This is format validation, not postal deliverability certification. CN requires a non-empty district. Other country codes route to manual quotation."
+      },
+      "CustomerProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "setupCompleted": {
+            "type": "boolean"
+          },
+          "shippingAddress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShippingAddress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "displayName",
+          "setupCompleted",
+          "shippingAddress"
+        ],
+        "description": "Full replacement. shippingAddress=null explicitly clears or defers address entry. Request destination and addressRevision cannot override server values."
+      },
+      "CustomerProfile": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "setupCompleted": {
+            "type": "boolean"
+          },
+          "shippingAddress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShippingAddress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "addressRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Increments only when normalized shipping address changes, including removal."
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "east",
+              "south",
+              "north",
+              "other",
+              null
+            ],
+            "description": "Derived server-side from CN province; all non-CN and unsupported shipping regions use other. Null without address."
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "displayName",
+          "setupCompleted",
+          "shippingAddress",
+          "addressRevision",
+          "destination",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CustomerProfileResponse": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "profile"
+        ]
+      },
+      "CustomerProfileMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "$ref": "#/components/schemas/CustomerProfile"
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        ]
       }
     }
   }

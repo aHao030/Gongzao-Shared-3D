@@ -2,6 +2,7 @@
   <view class="eyebrow">共造 · 共享3D打印</view>
   <view class="title"><view>让想法，</view><view>成为手中的实物。</view></view>
   <view class="subtitle">从模型到制造，再到交付。一处查看每一步。</view>
+  <button class="ghost" bindtap="goProfile">账号资料</button>
   <view class="demo-note">{{modeLabel}} · {{modeNote}}</view>
   <view class="card"><view class="label">数据模式</view><picker range="{{modeOptions}}" value="{{modeIndex}}" bindchange="changeMode" disabled="{{busy}}"><view class="field">{{modeOptions[modeIndex]}}　⌄</view></picker><view class="muted small">服务端模式须由开发者配置 HTTPS 地址及兼容鉴权。当前不能复用 ChatGPT 浏览器登录。</view></view>
   <view class="card">

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { createPlatformServer } from '../services/platform/local.mjs';
 import { GatewayClient } from '../services/device-gateway/client.mjs';
 import { validateConfig } from '../services/device-gateway/config.mjs';
+import { customerProfileFixture } from './helpers/customer-fixture.mjs';
 
 // Local HTTP + SQLite + actual gateway client. Printer observations are fixtures;
 // no multicast or LAN scan, physical printer, payment, or hosted edge is exercised.
@@ -146,6 +147,7 @@ test('merchant HTTP: stale gateways and expired scans block import; refresh mark
 
 test('merchant HTTP: existing v2 workspace, new registry and gateway survive restart and demo reset', async t => {
   const h = await setup(t), user = await h.session();
+  const customer = await h.request('/api/v2/customer/profile', { cookie: user.cookie, body: customerProfileFixture() }); assert.equal(customer.status, 200);
   const q = await h.request('/api/v2/quotes', { cookie: user.cookie, body: { modelId: 'sample-bracket', material: 'PLA', qty: 1, quality: 'standard', unit: 'mm', destination: 'east' } }); assert.equal(q.status, 200);
   const profile = await h.enroll(user); const gateway = await h.pair(user);
   const demo = await h.post(user, 'scan', { scope: 'demo' });

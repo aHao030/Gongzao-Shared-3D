@@ -1,3 +1,4 @@
+import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
 
 export class PlatformError extends Error {
@@ -27,7 +28,7 @@ export function createWorkspace({ now = Date.now() } = {}) {
   return { schemaVersion: 2, revision: 0, createdAt: now, updatedAt: now, mode: 'DEMO_SANDBOX', orders: [], devices: freshDevices(), quotes: [], models: [{ ...clone(sampleModel), createdAt: now }], idempotency: {} };
 }
 export function getPublicWorkspace(workspace) {
-  return clone({ revision: workspace.revision, orders: workspace.orders, devices: workspace.devices, models: workspace.models.map(({ blobKey, ...model }) => model) });
+  return clone({ customerProfile: getCustomerProfile(workspace), revision: workspace.revision, orders: workspace.orders, devices: workspace.devices, models: workspace.models.map(({ blobKey, ...model }) => model) });
 }
 function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED'); }
 function project(order) {
@@ -60,14 +61,17 @@ function modelTerms(model, unit) {
   const factor = unit === 'inch' ? 25.4 : 1;
   return { dimensions: model.dimensions.map(value => value * factor), volume: model.volume * factor ** 3 };
 }
-function validateConfiguration(payload) {
-  const config = { modelId: payload.modelId ?? 'sample-bracket', material: payload.material ?? 'PLA', quality: payload.quality ?? 'standard', qty: payload.qty ?? 1, unit: payload.unit ?? 'mm', destination: payload.destination ?? 'east' };
+function validateConfiguration(payload, destination) {
+  const config = { modelId: payload.modelId ?? 'sample-bracket', material: payload.material ?? 'PLA', quality: payload.quality ?? 'standard', qty: payload.qty ?? 1, unit: payload.unit ?? 'mm', destination };
   check(text(config.modelId) && own(materials, config.material) && ['standard', 'fine'].includes(config.quality) && ['mm', 'inch'].includes(config.unit) && own(destinations, config.destination), 'INVALID_CONFIGURATION', '模型、材料、层高、单位或地区无效', 400);
   check(Number.isInteger(config.qty) && config.qty >= 1 && config.qty <= 50, 'INVALID_QUANTITY', '数量必须为 1–50 的整数', 400);
+  if (own(payload, 'destination')) check(payload.destination === destination, 'DESTINATION_MISMATCH', '收货地区已变化，请使用账号中保存的地址重新测算');
   return config;
 }
 async function makeQuotes(workspace, payload, now, idFactory) {
-  const config = validateConfiguration(payload), model = find(workspace.models, config.modelId, 'MODEL_NOT_FOUND');
+  const { address, addressRevision, destination } = requireShippingAddress(workspace);
+  const addressFingerprint = await digest(address);
+  const config = validateConfiguration(payload, destination), model = find(workspace.models, config.modelId, 'MODEL_NOT_FOUND');
   const geometry = modelTerms(model, config.unit);
   const reviewReasons = [];
   if (model.review || model.closed !== true || model.format !== 'stl') reviewReasons.push('MODEL_REVIEW');
@@ -77,7 +81,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
   const quotes = [];
   for (const farm of farms) {
     const device = workspace.devices.find(d => d.farm === farm.id);
-    const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: reviewReasons.length > 0, reviewReasons: [...reviewReasons], issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
+    const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, addressRevision, addressFingerprint, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: reviewReasons.length > 0, reviewReasons: [...reviewReasons], issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
     if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [...farm.days], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
       const weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
@@ -139,9 +143,11 @@ async function createOrder(workspace, payload, now, idFactory) {
   check(!quote.usedByOrderId, 'QUOTE_USED', '该报价已创建订单，请获取新报价');
   const { fingerprint, usedByOrderId, ...terms } = quote;
   check(await digest(terms) === fingerprint, 'QUOTE_CHANGED', '报价快照校验失败');
+  const { address, addressRevision } = requireShippingAddress(workspace);
+  check(quote.addressRevision === addressRevision && quote.addressFingerprint === await digest(address), 'ADDRESS_CHANGED', '收货地址已更新，请重新测算费用后下单');
   const model = find(workspace.models, quote.modelId, 'MODEL_NOT_FOUND');
   check(model.sha256 === quote.modelHash && (model.version ?? 1) === quote.modelVersion, 'MODEL_CHANGED', '文件版本已变化，请重新报价');
-  const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
+  const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, shippingAddress: clone(address), addressRevision, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
   quote.usedByOrderId = order.id;
   event(order, quote.review ? '已提交演示工程询价，尚未付款' : '已创建演示订单，模拟付款已冻结（未真实收款）', now);
   project(order); workspace.orders.push(order);
@@ -223,7 +229,7 @@ function act(workspace, payload, now) {
 export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID() } = {}) {
   check(command && typeof command === 'object' && !Array.isArray(command), 'INVALID_INPUT', '命令无效', 400);
   const { type, payload = {}, idempotencyKey } = command;
-  check(['register-model', 'quote', 'order', 'action'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
+  check(['register-model', 'quote', 'order', 'action', 'customer-profile'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
   check(text(idempotencyKey, 160), 'IDEMPOTENCY_REQUIRED', '写操作必须提供幂等标识', 400);
   check(payload && typeof payload === 'object' && !Array.isArray(payload), 'INVALID_INPUT', 'payload 必须为对象', 400);
   check(Number.isFinite(now) && now >= 0, 'INVALID_CLOCK', '服务端时间无效');
@@ -236,7 +242,8 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
   check(Object.keys(original.idempotency).length < 2000, 'IDEMPOTENCY_CAPACITY', '演示空间操作记录已达 2000 条，请创建新的演示空间');
   const workspace = clone(original);
   let result;
-  if (type === 'register-model') result = registerModel(workspace, payload, now, idFactory);
+  if (type === 'customer-profile') result = saveCustomerProfile(workspace, payload, now);
+  else if (type === 'register-model') result = registerModel(workspace, payload, now, idFactory);
   else if (type === 'quote') result = await makeQuotes(workspace, payload, now, idFactory);
   else if (type === 'order') result = await createOrder(workspace, payload, now, idFactory);
   else if (type === 'action') result = act(workspace, payload, now);

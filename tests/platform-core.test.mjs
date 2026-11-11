@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyCommand, createWorkspace, getPublicWorkspace } from '../services/platform/core.mjs';
+import { saveCustomerProfile } from '../services/platform/customer.mjs';
+import { customerProfileFixture } from './helpers/customer-fixture.mjs';
 
 function sandbox() {
   let workspace = createWorkspace({ now: 1000000 }), sequence = 0, clock = 1000000;
+  saveCustomerProfile(workspace, customerProfileFixture(), clock);
   const run = async (type, payload, key = `key-${++sequence}`) => {
     const response = await applyCommand(workspace, { type, payload, idempotencyKey: key }, { now: clock, idFactory: () => `id-${++sequence}` });
     workspace = response.workspace; return response;

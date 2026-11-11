@@ -8,6 +8,7 @@ const statusNames = { awaiting_pickup: '生产完成待取件', qc_failed: '质�
 let mode = 'local';
 let client;
 let selectedRemoteQuotes = [];
+let pendingProfileMutation = null;
 const pendingStorageKey = 'shared_fabrication_pending_api_keys_v1';
 function storedKeys() { const value = wx.getStorageSync(pendingStorageKey); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function retainedKey(scope) {
@@ -30,7 +31,7 @@ function remoteClient() {
 async function selectMode(nextMode) {
   if (nextMode !== 'local' && nextMode !== 'server') throw new Error('不支持的数据模式。');
   if (nextMode === 'server') await remoteClient().getSession();
-  mode = nextMode; selectedRemoteQuotes = []; return getModeInfo();
+  mode = nextMode; selectedRemoteQuotes = []; pendingProfileMutation = null; return getModeInfo();
 }
 function getSpec() { return demo.getSpec(); }
 function saveSpec(materialIndex, quantity) { return demo.saveSpec(materialIndex, quantity); }
@@ -38,8 +39,11 @@ function priceText(value) { return typeof value === 'number' && Number.isFinite(
 async function getQuotes(spec) {
   if (!spec) return [];
   if (mode === 'local') return demo.getQuotes(spec).map(quote => Object.assign({}, quote, { priceText: priceText(quote.price) }));
-  const input = { modelId: 'sample-bracket', material: materialCodes[spec.materialIndex], quality: 'standard', qty: spec.quantity, unit: 'mm', destination: 'east' };
-  const signature = JSON.stringify(input);
+  selectedRemoteQuotes = [];
+  const { profile } = await remoteClient().getCustomerProfile();
+  if (!profile || !profile.shippingAddress) { const error = new Error('请先完善账号资料中的收货地址，再测算费用。'); error.code = 'ADDRESS_REQUIRED'; throw error; }
+  const input = { modelId: 'sample-bracket', material: materialCodes[spec.materialIndex], quality: 'standard', qty: spec.quantity, unit: 'mm' };
+  const signature = JSON.stringify({ input, addressRevision: profile.addressRevision });
   const scope = config.API_BASE + ':quote:' + signature;
   const result = await remoteClient().getQuotes(input, retainedKey(scope));
   completeKey(scope);
@@ -56,6 +60,21 @@ async function createOrder(quoteId) {
   completeKey(scope);
   return result.order;
 }
+async function getCustomerProfile() {
+  if (mode !== 'server') return { profile: null, localOnly: true };
+  return remoteClient().getCustomerProfile();
+}
+async function saveCustomerProfile(input) {
+  if (mode !== 'server') { const error = new Error('本机演示不采集或保存真实收货地址，请先接通服务端模式。'); error.code = 'SERVER_MODE_REQUIRED'; throw error; }
+  // Address bodies stay in memory. Never put personal details in a persistent retry-key scope.
+  const signature = JSON.stringify(input);
+  if (!pendingProfileMutation || pendingProfileMutation.signature !== signature) pendingProfileMutation = { signature, key: requestKey() };
+  const mutation = pendingProfileMutation;
+  const result = await remoteClient().saveCustomerProfile(input, mutation.key);
+  if (pendingProfileMutation === mutation) pendingProfileMutation = null;
+  selectedRemoteQuotes = [];
+  return result;
+}
 function remoteOrder(order) {
   const label = order.dispute ? '争议处理中' : (statusNames[order.status] || String(order.status || '等待服务端状态'));
   const events = Array.isArray(order.events) ? order.events : [];
@@ -70,4 +89,4 @@ async function listOrders() {
 }
 function advanceOrder(id) { if (mode !== 'local') throw new Error('服务端订单不能在本机推进。'); demo.advanceOrder(id); }
 function clearOrders() { if (mode !== 'local') throw new Error('服务端订单不能在本机清空。'); demo.clearOrders(); }
-module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getQuotes, createOrder, listOrders, advanceOrder, clearOrders };
+module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getQuotes, createOrder, getCustomerProfile, saveCustomerProfile, listOrders, advanceOrder, clearOrders };

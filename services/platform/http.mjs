@@ -1,3 +1,4 @@
+import { getCustomerProfile } from './customer.mjs';
 import { handleMerchantApi } from './merchant-http.mjs';
 import { applyCommand, getPublicWorkspace } from './core.mjs';
 import { ApiError, ensure, analyzeModel } from './geometry.mjs';
@@ -18,12 +19,13 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
     if(path.startsWith('/api/v2/merchant/')||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.3.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.4.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
     ensure(!origin||origin===url.origin,403,'CROSS_ORIGIN_DENIED','不接受其他网站的请求');
     if(request.method==='GET'&&path==='/api/v2/session')return jsonResponse({mode:'SERVER_SANDBOX',authenticated:true,user:{id:ownerId,label:userLabel},persistence:store.kind,capabilities:{uploads:true,maxUploadBytes:20*1024*1024,maxStlTriangles:50000,realPayments:false,realDevices:false,wechatAuthentication:false}});
+    if(request.method==='GET'&&path==='/api/v2/customer/profile')return jsonResponse({profile:getCustomerProfile(await store.load(ownerId))});
     if(request.method==='GET'&&path==='/api/v2/workspace')return jsonResponse({mode:'SERVER_SANDBOX',workspace:getPublicWorkspace(await store.load(ownerId))});
     const download=path.match(/^\/api\/v2\/models\/(mdl_[a-zA-Z0-9_-]+)\/download$/);
     if(request.method==='GET'&&download){
@@ -45,7 +47,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
       // SQLite commits metadata and bytes in one transaction; R2 uses CAS coordination.
       pendingFile={id:payload.id,bytes};
     } else {
-      const routes={'/api/v2/quotes':'quote','/api/v2/orders':'order','/api/v2/actions':'action'};
+      const routes={'/api/v2/customer/profile':'customer-profile','/api/v2/quotes':'quote','/api/v2/orders':'order','/api/v2/actions':'action'};
       type=routes[path];ensure(type,404,'NOT_FOUND','接口不存在');
       ensure(request.headers.get('content-type')?.split(';')[0]==='application/json',415,'INVALID_CONTENT_TYPE','接口需要 application/json');
       try{payload=JSON.parse(new TextDecoder().decode(await readLimited(request,32768)));}

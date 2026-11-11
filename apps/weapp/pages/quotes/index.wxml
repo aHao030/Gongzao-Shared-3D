@@ -1,8 +1,9 @@
 <view class="page">
   <view class="eyebrow">COMPARE & CHOOSE</view><view class="title"><view>选一种，</view><view>适合你的交付。</view></view>
   <view class="demo-note">{{modeLabel}} · {{modeNote}} 选择后{{isLocal ? "保存本机演示订单" : "创建服务端沙盒订单"}}，无真实支付。</view>
+  <button wx:if="{{!isLocal}}" class="ghost" bindtap="goProfile">账号资料与收货地址</button>
   <view wx:if="{{loading}}" class="card muted">正在获取报价…</view>
-  <view wx:if="{{error}}" class="card"><view class="danger">{{error}}</view><button class="secondary" bindtap="loadQuotes">重新获取报价</button></view>
+  <view wx:if="{{error}}" class="card"><view class="danger">{{error}}</view><button wx:if="{{addressRequired}}" class="primary" bindtap="goProfile">填写收货地址</button><button wx:else class="secondary" bindtap="loadQuotes">重新获取报价</button></view>
   <view wx:if="{{!spec}}" class="card empty"><view class="empty-title">先选择一个示例模型</view><view class="muted">设定材料与数量，就能体验报价对比。</view><button class="primary" bindtap="goUpload">开始定制</button></view>
   <block wx:else>
     <view class="subtitle">{{spec.modelName}} · {{spec.material}} · {{spec.quantity}} 件</view>

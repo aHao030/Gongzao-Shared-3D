@@ -25,7 +25,9 @@ node --test apps/tests/*.test.mjs
 |---|---|---|
 | `getSession()` | `GET /api/v2/session` | 校验沙盒模式与认证；返回 user/persistence 等服务端信息 |
 | `getWorkspace()` | `GET /api/v2/workspace` | 返回 `workspace`，包含 revision/orders/devices/models |
-| `getQuotes(input, key)` | `POST /api/v2/quotes` | input 含 modelId/material/quality/qty/unit/destination；返回 quotes/workspace |
+| `getCustomerProfile()` | `GET /api/v2/customer/profile` | 返回 profile 或 null；包含 shippingAddress/addressRevision/destination |
+| `saveCustomerProfile(input, key)` | `POST /api/v2/customer/profile` | 保存 displayName、setupCompleted 与 shippingAddress；返回 profile/workspace |
+| `getQuotes(input, key)` | `POST /api/v2/quotes` | input 含 modelId/material/quality/qty/unit；配送地区由服务端账号地址推导，返回 quotes/workspace |
 | `createOrder(quoteId, key)` | `POST /api/v2/orders` | 自动带 `demoAcknowledged: true`；返回 order/workspace |
 | `uploadModel(bytes, filename, key)` | `POST /api/v2/models` | 原始二进制，`application/octet-stream`，编码后的 `X-File-Name` |
 | `customerAction(action, id, extra, key)` | `POST /api/v2/actions` | 仅 accept/dispute/cancel；不能调用商家生产或设备操作 |
@@ -47,3 +49,7 @@ node apps/tools/configure-native-api.mjs --api-base https://your-api-host
 这只生成 `apps/shared/native-api.config.json` 和精确允许该 origin 的 Tauri CSP override。它不会自动修改网页、登录、启用鉴权或连通服务。Tauri 构建时显式使用 `--config src-tauri/tauri.api.conf.json`；前端仍需读取同一个配置并注入经过服务端验证的 token provider。不要把 CSP 放宽为 `*` 或全部 `https:`。
 
 正式集成还需服务端 CORS 允许实际应用来源、平台网络域名配置、TLS、登录过期处理及用户隔离测试。当前默认配置为空且鉴权未就绪。
+
+## 收货地址流程
+
+先读取账号资料；没有 shippingAddress 时收集并保存地址，再申请报价。服务端返回 ADDRESS_REQUIRED 时不得使用默认华东地区或本地假报价替代。地址变化后服务端会使旧报价无法下单（ADDRESS_CHANGED），需重新测算。收货地址只发送给已配置且完成鉴权的服务端，不写入本机持久缓存或日志。正式服务仍需完成多端认证与个人资料管理验收。

@@ -57,6 +57,18 @@
         if (!result.workspace || !Array.isArray(result.workspace.orders)) throw fail('INVALID_RESPONSE', '工作区响应缺少订单列表。');
         return result;
       },
+      async getCustomerProfile() {
+        const result = await request('GET', '/customer/profile');
+        if (!Object.prototype.hasOwnProperty.call(result, 'profile') || (result.profile !== null && (typeof result.profile !== 'object' || Array.isArray(result.profile))))
+          throw fail('INVALID_RESPONSE', '账号资料响应缺少有效 profile。');
+        return result;
+      },
+      async saveCustomerProfile(input, idempotencyKey) {
+        if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('PROFILE_REQUIRED', '请提供账号资料和收货地址。');
+        const result = await request('POST', '/customer/profile', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });
+        if (!result.profile || typeof result.profile !== 'object' || Array.isArray(result.profile)) throw fail('INVALID_RESPONSE', '账号资料保存响应缺少 profile。');
+        return result;
+      },
       async getQuotes(input, idempotencyKey) {
         const result = await request('POST', '/quotes', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });
         if (!Array.isArray(result.quotes)) throw fail('INVALID_RESPONSE', '报价响应缺少 quotes 列表。');

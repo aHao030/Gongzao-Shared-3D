@@ -12,6 +12,7 @@ Page({
     catch (error) { this.setData(service.getModeInfo()); wx.showModal({ title: '服务端模式尚未就绪', content: error.message, showCancel: false }); }
     finally { this.setData({ busy: false }); }
   },
+  goProfile() { wx.navigateTo({ url: '/pages/profile/index' }); },
   selectSample() { this.setData({ sampleSelected: true }); wx.showToast({ title: '已选择示例模型', icon: 'none' }); },
   changeMaterial(event) { this.setData({ materialIndex: Number(event.detail.value) }); },
   changeQuantity(event) { this.setData({ quantity: event.detail.value }); },

@@ -1,0 +1,21 @@
+<view class="page profile-form">
+  <view class="eyebrow">ACCOUNT</view><view class="title">完善账号资料。</view>
+  <view wx:if="{{isLocal}}" class="card"><view class="section-title">本机演示无需填写地址</view><view class="muted">本模式不采集或保存真实收货信息。小程序服务端鉴权尚未接通，完成受支持的登录接入后才能保存账号资料。</view><button class="secondary" bindtap="goBack">返回定制</button></view>
+  <block wx:else>
+    <view class="demo-note">地址仅发送给已配置的服务端沙盒，用于配送费用测算。修改地址后需重新报价，不会修改已创建订单的收货地址。</view>
+    <view wx:if="{{loading}}" class="card muted">正在读取账号资料…</view>
+    <view wx:if="{{error}}" class="card danger">{{error}}</view>
+    <view wx:if="{{!loading}}" class="card">
+      <view class="label">昵称（选填）</view><input class="field" value="{{form.displayName}}" data-field="displayName" bindinput="changeField" maxlength="60" disabled="{{saving}}" />
+      <view class="label">收货人</view><input class="field" value="{{form.recipient}}" data-field="recipient" bindinput="changeField" maxlength="80" disabled="{{saving}}" />
+      <view class="label">联系电话</view><input class="field" value="{{form.phone}}" data-field="phone" bindinput="changeField" maxlength="32" disabled="{{saving}}" />
+      <view class="label">国家 / 地区代码</view><input class="field" value="{{form.countryCode}}" data-field="countryCode" bindinput="changeField" maxlength="2" placeholder="例如 CN、US、JP" disabled="{{saving}}" />
+      <view class="label">省 / 州</view><input class="field" value="{{form.province}}" data-field="province" bindinput="changeField" maxlength="80" placeholder="例如 浙江省" disabled="{{saving}}" />
+      <view class="label">城市</view><input class="field" value="{{form.city}}" data-field="city" bindinput="changeField" maxlength="80" disabled="{{saving}}" />
+      <view class="label">区 / 县（中国大陆必填）</view><input class="field" value="{{form.district}}" data-field="district" bindinput="changeField" maxlength="80" disabled="{{saving}}" />
+      <view class="label">详细地址</view><textarea class="field" value="{{form.addressLine}}" data-field="addressLine" bindinput="changeField" maxlength="240" placeholder="街道、门牌号等" disabled="{{saving}}" />
+      <view class="label">邮政编码（选填）</view><input class="field" value="{{form.postalCode}}" data-field="postalCode" bindinput="changeField" maxlength="20" disabled="{{saving}}" />
+      <button class="primary" bindtap="saveProfile" disabled="{{saving}}">{{saving ? '正在保存…' : '保存并测算费用'}}</button><button class="ghost" bindtap="goBack" disabled="{{saving}}">稍后填写</button>
+    </view>
+  </block>
+</view>

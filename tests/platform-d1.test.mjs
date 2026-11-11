@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { D1Store } from '../services/platform/store-d1.mjs';
 import { handleApi } from '../services/platform/http.mjs';
+import { customerProfileFixture } from './helpers/customer-fixture.mjs';
 
 // Adapter contract simulation only: real D1Store + handleApi, SQLite SQL execution
 // behind the D1 method shape, and an in-memory R2 byte store. These tests do not
@@ -88,17 +89,27 @@ function harness(t) {
     return { status: response.status, headers: response.headers, body: bodyResult, bytes };
   }
   const post = (owner, pathname, body, idempotencyKey) => request(owner, pathname, { method: 'POST', body, idempotencyKey });
+  const profileRequests = new Map();
+  const ensureCustomerProfile = owner => {
+    if (!profileRequests.has(owner)) profileRequests.set(owner, (async () => {
+      const response = await post(owner, '/api/v2/customer/profile', customerProfileFixture());
+      assert.equal(response.status, 200, JSON.stringify(response.body));
+      return response;
+    })());
+    return profileRequests.get(owner);
+  };
   const upload = (owner, name, idempotencyKey) => request(owner, '/api/v2/models', {
     method: 'POST', raw: cube, idempotencyKey,
     headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(name) }
   });
   const quote = async (owner, changes = {}, idempotencyKey) => {
+    await ensureCustomerProfile(owner);
     const ws = await store.load(owner), modelId = ws.models.find(model => model.isSample).id;
     const response = await post(owner, '/api/v2/quotes', { modelId, material: 'PLA', quality: 'standard', qty: 1, unit: 'mm', destination: 'east', ...changes }, idempotencyKey);
     assert.equal(response.status, 200, JSON.stringify(response.body));
     return response;
   };
-  return { db, bucket, store, request, post, upload, quote };
+  return { db, bucket, store, request, post, upload, quote, ensureCustomerProfile };
 }
 
 test('D1 adapter contract: owner isolation covers workspace, model downloads and foreign mutations', async t => {
@@ -166,6 +177,8 @@ test('D1 adapter contract: known idempotency conflicts and replay do not write n
 
 test('D1 adapter contract: invalid business requests remain 4xx and do not commit state', async t => {
   const h = harness(t), sampleId = (await h.store.load(ownerA)).models.find(model => model.isSample).id;
+  await h.ensureCustomerProfile(ownerA);
+  const before = await h.store.load(ownerA);
   const cases = [
     ['/api/v2/quotes', { modelId: sampleId, qty: 0 }, 400, 'INVALID_QUANTITY'],
     ['/api/v2/orders', { quoteId: 'nonexistent-quote', demoAcknowledged: true }, 404, 'QUOTE_NOT_FOUND'],
@@ -178,10 +191,10 @@ test('D1 adapter contract: invalid business requests remain 4xx and do not commi
     assert.equal(typeof response.body.requestId, 'string');
   }
   const state = await h.store.load(ownerA);
-  assert.equal(state.revision, 0);
+  assert.equal(state.revision, before.revision);
   assert.equal(state.orders.length, 0);
   assert.equal(state.quotes.length, 0);
-  assert.equal(Object.keys(state.idempotency).length, 0);
+  assert.deepEqual(state.idempotency, before.idempotency);
   assert.equal(h.bucket.objects.size, 0);
 });
 

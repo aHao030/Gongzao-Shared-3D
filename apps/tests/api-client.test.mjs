@@ -28,7 +28,7 @@ test('session handshake requires authenticated SERVER_SANDBOX', async () => {
 });
 
 test('quote client uses the v2 route and passes the contracted payload', async () => {
-  const input = { modelId: 'sample-bracket', material: 'PLA', quality: 'standard', qty: 2, unit: 'mm', destination: 'east' };
+  const input = { modelId: 'sample-bracket', material: 'PLA', quality: 'standard', qty: 2, unit: 'mm' };
   let captured;
   const result = await make(async request => { captured = request; return { statusCode: 200, data: { quotes: [{ quoteId: 'q1' }] } }; }).getQuotes(input, 'quote-key-123');
   assert.equal(captured.headers['Idempotency-Key'], 'quote-key-123');
@@ -107,6 +107,7 @@ test('mini-program retains failed quote idempotency keys across adapter reloads'
       './auth': { getAccessToken: validToken },
       './transport': { wxTransport: async request => {
         if (request.url.endsWith('/session')) return { status: 200, data: { authenticated: true, mode: 'SERVER_SANDBOX' } };
+        if (request.url.endsWith('/customer/profile')) return { status: 200, data: { profile: { shippingAddress: { countryCode: 'CN' }, addressRevision: 1 } } };
         quoteKeys.push(request.headers['Idempotency-Key']); quoteAttempts++;
         if (quoteAttempts === 1) throw new Error('test network interruption');
         return { status: 200, data: { quotes: [{ quoteId: 'q1', farm: { name: 'test' }, total: 1, days: [1, 2] }] } };
