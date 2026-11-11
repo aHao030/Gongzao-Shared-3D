@@ -1,4 +1,4 @@
-const CACHE = 'gongzao-platform-v4';
+const CACHE = 'gongzao-platform-v5';
 const ASSETS = ['/index.html', '/styles.css', '/app.js', '/api-client.js', '/merchant-ui.js', '/icons.svg', '/app-icon.svg', '/manifest.webmanifest'];
 const ENTRIES = new Set(['/', '/index.html', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/']);
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())); });

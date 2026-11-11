@@ -21,6 +21,7 @@ export function requestJson(url,{method='GET',headers={},body,timeoutMs=2000,max
     if(body)req.write(body);req.end();
   });
 }
+const observationText=value=>typeof value==='string'?value.replace(/[\u0000-\u001f\u007f]/g,'').slice(0,100):'';
 const stableKey=target=>createHash('sha256').update(target.protocol+'|'+target.endpoint).digest('hex');
 export async function probeTarget(input,{allowLoopback=false,transport=requestJson}={}) {
   const target=normalizeTarget(input,{allowLoopback});
@@ -34,10 +35,10 @@ export async function probeTarget(input,{allowLoopback=false,transport=requestJs
     if(target.protocol==='moonraker'){
       const info=data.result||data;
       if(typeof info.klippy_connected!=='boolean'||typeof info.klippy_state!=='string'||!Array.isArray(info.components))return null;
-      return {...candidate,connectionState:info.klippy_connected?'online':'offline'};
+      return {...candidate,connectionState:info.klippy_connected?'online':'offline',probeEvidence:{method:'GET',endpoint:'/server/info',serviceReachable:true,controllerConnected:info.klippy_connected,controllerState:observationText(info.klippy_state),serviceVersion:observationText(info.moonraker_version)}};
     }
     if(typeof data.text!=='string'||!/^OctoPrint(?:\s|$)/.test(data.text)||typeof data.api!=='string'||typeof data.server!=='string')return null;
-    return {...candidate,connectionState:'online'};
+    return {...candidate,connectionState:'online',probeEvidence:{method:'GET',endpoint:'/api/version',serviceReachable:true,controllerConnected:null,controllerState:'',serviceVersion:observationText(data.server)}};
   }catch(error){
     if(['REDIRECT_REFUSED','RESPONSE_TOO_LARGE'].includes(error.code))return null;
     // A configured endpoint may be temporarily unavailable. Keep its offline observation,

@@ -87,7 +87,7 @@
         return request('POST', '/models', bytes, { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(filename), 'Idempotency-Key': keyHeader(idempotencyKey) });
       },
       customerAction(action, id, extra, idempotencyKey) {
-        if (!['accept', 'dispute', 'cancel'].includes(action)) throw fail('CUSTOMER_ACTION_NOT_ALLOWED', '仅允许客户验收、争议或取消操作。');
+        if (!['accept', 'dispute', 'cancel', 'request-refund'].includes(action)) throw fail('CUSTOMER_ACTION_NOT_ALLOWED', '仅允许客户验收、争议、取消或申请退款。');
         if (typeof id !== 'string' || !id) throw fail('ORDER_REQUIRED', '缺少订单标识。');
         return request('POST', '/actions', Object.assign({}, extra || {}, { action, id, demoAcknowledged: true }), { 'Idempotency-Key': keyHeader(idempotencyKey) });
       }

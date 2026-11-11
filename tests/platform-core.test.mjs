@@ -115,8 +115,8 @@ test('logistics delivery is independent of acceptance; dispute blocks settlement
   await assert.rejects(s.action('accept', id, { customerAccepted: true }), { code: 'SETTLEMENT_BLOCKED' });
   await s.action('dispute', id, { open: false });
   await assert.rejects(s.action('accept', id, { customerAccepted: false }), { code: 'ACCEPTANCE_REQUIRED' });
-  const settled = await s.action('accept', id, { customerAccepted: true }, 'accept-once');
-  assert.equal(settled.result.order.status, 'settled'); assert.equal(settled.result.moneyTransferred, 0);
+  const accepted = await s.action('accept', id, { customerAccepted: true }, 'accept-once');
+  assert.equal(accepted.result.order.status, 'accepted'); assert.equal(accepted.result.order.paymentState, 'SIMULATED_FROZEN'); assert.equal(accepted.result.moneyTransferred, 0);
   const revision = s.workspace.revision;
   await s.action('accept', id, { customerAccepted: true }, 'accept-once');
   assert.equal(s.workspace.revision, revision);
@@ -126,7 +126,8 @@ test('logistics delivery is independent of acceptance; dispute blocks settlement
 test('cancelling a blocked queued job starts the next compatible one but cannot cancel running work', async () => {
   const s = sandbox(), first = await s.order({ material: 'PETG' }), second = await s.order();
   await s.action('cancel', first.id);
-  assert.equal(s.workspace.orders[0].paymentState, 'SIMULATED_REFUNDED');
+  assert.equal(s.workspace.orders[0].paymentState, 'SIMULATED_FROZEN');
+  assert.equal(s.workspace.orders[0].refundState, 'REQUESTED');
   assert.equal(s.workspace.devices[0].orderId, second.id);
   await assert.rejects(s.action('cancel', second.id), { code: 'CANCELLATION_NOT_ALLOWED' });
 });

@@ -1,4 +1,4 @@
-# 共造 v0.4 客户与履约沙盒 API（/api/v2）
+# 共造 v0.5 客户与履约沙盒 API（/api/v2）
 
 本文件描述 `services/platform` 当前实现；机器可读契约为 [openapi-v2.json](./openapi-v2.json)。旧 [API_CONTRACT.md](./API_CONTRACT.md) 描述独立的 v1 内存演示，不能用作当前网页的接口说明。
 
@@ -105,7 +105,7 @@ STL 支持精确长度匹配的二进制 STL 与 ASCII STL：ASCII 限 **8 MiB**
 
 当前 `STEP/STP/3MF/图片` 仅保存原始内容与哈希，不解析 CAD/压缩包/图像几何，不做完整文件格式鉴真，均设置 `review: true`。客户端必须展示“待工程审核”，不能将其当成可自动生产模型。
 
-`Model` 的关键字段：`id/name/size/sha256/format/version/createdAt/isSample/geometrySource/unit/dimensions/volume/closed/review/faceCount`。原始 STL 坐标暂按 mm 记录，`volume` 按该假设以 cm³ 计；客户在报价时选择 `inch` 会将各尺寸乘 25.4、体积乘 25.4³，并不改写已保存原始文件。文件分析中间信息 `analysisVersion`、`analysisNote` 当前不在持久 `Model` 返回结构中。
+`Model` 的关键字段：`id/name/size/sha256/format/version/createdAt/isSample/geometrySource/unit/dimensions/volume/closed/review/faceCount`。原始 STL 坐标暂按 mm 记录，`volume` 按该假设以 cm³ 计；客户在报价时选择 `inch` 会将各尺寸乘 25.4、体积乘 25.4³，并不改写已保存原始文件。v0.5 新模型持久保存 `analysisVersion`、`analysisNote`；历史模型可能缺少字段，不能据此推断已经验证可制造性。
 
 `sample-bracket` 是服务端演示 fixture，带演示几何而没有可下载原始文件。下载仅对实际上传的 `mdl_…` 路由开放，不应为样例构造下载链接。
 
@@ -149,13 +149,32 @@ STL 支持精确长度匹配的二进制 STL 与 ASCII STL：ASCII 限 **8 MiB**
 | `collect-and-qc` | `partRemoved: true`、`qcPassed: boolean`、`bedClear: true`、`materialReady: true`、`loadedMaterial` | 订单须 WAITING_REMOVAL 且占用对应；设置 QC_PASSED 或 QC_FAILED，释放设备并尝试下一单。 |
 | `ship` | `carrier`、`trackingNumber` | 订单须 QC_PASSED 且未发货。承运商非空且不超过 80 字符；运单匹配 `^DEMO-[A-Za-z0-9-]{3,27}$`。 |
 | `deliver` | 无 | 仅 SHIPPED 订单可模拟物流送达；不自动验收或结算。 |
-| `accept` | `customerAccepted: true` | QC_PASSED、DELIVERED、SIMULATED_FROZEN、验收待定、未请求结算且无争议退款时，模拟验收并结算；不转账。 |
-| `dispute` | `open: boolean` | 仅物流已送达且尚未结算；打开或撤销争议，同状态重复操作返回 NO_STATE_CHANGE（同幂等键重放除外）。 |
-| `cancel` | 无 | 仅 REVIEW_REQUIRED 或 QUEUED 可取消；冻结的模拟款转 SIMULATED_REFUNDED；尝试调度后续队列。 |
+| `accept` | `customerAccepted: true` | QC_PASSED、DELIVERED、SIMULATED_FROZEN、验收待定、未请求结算且无争议退款时，仅设置 ACCEPTED/READY；款项继续 SIMULATED_FROZEN，不转账。 |
+| `dispute` | `open: boolean` | 已模拟付款、未取消、未提交结算（NOT_REQUESTED/READY/FAILED）；打开或撤销争议，同状态重复操作返回 NO_STATE_CHANGE（同幂等键重放除外）。 |
+| `cancel` | 无 | 仅 REVIEW_REQUIRED 或 QUEUED 可取消；冻结的模拟款保持冻结并生成 REQUESTED 退款，须另行处理；尝试调度后续队列。 |
 
-派发按农场选择最早 QUEUED 单；要求设备 ready、无占用、清台、材料就绪、已装材料及配置/配方版本匹配。当前不跳过队首不兼容订单；可能返回/记录 `READINESS_REQUIRED/MATERIAL_MISMATCH/PROFILE_MISMATCH` 阻塞原因。不会向物理设备发送命令。
+派发按农场选择最早 QUEUED 单；要求设备 ready、无占用、清台、材料就绪、已装材料及配置/配方版本匹配。当前不跳过队首不兼容订单；可能返回/记录 `READINESS_REQUIRED/MATERIAL_MISMATCH/PROFILE_MISMATCH/FUNDS_BLOCKED` 阻塞原因。不会向物理设备发送命令。
 
 生产、付款、物流、验收、结算、争议、退款分别保存在 `productionState/paymentState/logisticsState/acceptanceState/settlementState/disputeState/refundState`。`status` 是界面投影；`dispute` 是争议布尔投影，不能代替完整状态。事件包含 `label/time/at/simulated: true`。
+
+## v0.5 报价证据与资金处理
+
+新报价增加 `estimation`，一同纳入报价指纹。自动沙盒报价标记 `GEOMETRY_HEURISTIC/UNVERIFIED`，`slicer:null`、`machineValidated:false`、`capacityReserved:false`，不意味着已经切片、实机验证或预约产能。`analysisVersion/analysisNote`、排队单数、阶段估算及假设说明用于解释金额和交期。`estimatedArrival` 是报价时刻加预计日数得到的 ISO 日期区间，未使用工作日历；工程审核报价此字段和 `stages` 均为 null，不承诺交期。
+
+验收、结算申请、结算结果分别执行，均只操作沙盒：
+
+| action | 输入 | 效果 |
+| --- | --- | --- |
+| `request-settlement` | `id` | 客户 ACCEPTED、资金仍冻结、状态 READY/FAILED、无争议或待退款时，创建 `settlementAttempt`，状态 REQUESTED。 |
+| `resolve-settlement` | `id,attemptId,outcome`；失败还须 `reason` | attemptId 必须等于当前申请。succeeded → SIMULATED_SETTLED/SIMULATED_RELEASED；failed → FAILED，保留冻结，可重新申请。不代表银行到账。 |
+| `request-refund` | `id,reason`；可省略 `amountCents` | 仅模拟已付款、未提交结算时申请整单退款，生成 `refundRequest`。金额若传入须等于订单总额。 |
+| `resolve-refund` | `id,requestId,approved`；拒绝还须 `reason` | requestId 必须等于当前退款申请。批准要求设备不再被本单占用；拒绝保留付款且不自动关闭争议。已取消的已付款订单不可拒绝退款。 |
+
+所有新动作仍需 `demoAcknowledged:true` 与 Idempotency-Key。退款请求暂停后续派发、发货与结算，**不会自动停止运行中的机器**；先完成模拟打印、取件释放设备后才允许批准退款。争议也阻止派发、发货与结算。已退款订单不能发货或结算；历史生产/物流事实保留，不能用退款抹去已发货记录。本轮未实现实际退货运输或部分退款。
+
+`settlementAttempt.id` 与 `refundRequest.id` 绑定每次处理结果。失败/拒绝后新申请有新 ID，旧结果被拒；旧幂等键重放只返回原结果，不重新执行。以前的已完成申请保存至 `settlementHistory/refundHistory`。这不是支付机构验签 webhook 或会计账本。
+
+新增展示状态：`accepted`（已验收待结算）、`settling`（结算申请处理中）、`settlement_failed`、`refund_pending`、`refunded`。以独立状态字段决定动作，不能只依赖展示状态。v0.4 已结算/已退款订单仍保留原事实；不把旧记录重做结算。
 
 ## 错误与容量
 

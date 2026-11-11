@@ -19,7 +19,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
     if(path.startsWith('/api/v2/merchant/')||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.4.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.5.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');

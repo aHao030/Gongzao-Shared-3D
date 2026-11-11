@@ -1,4 +1,5 @@
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
+import { addQuoteEvidence } from './quote-evidence.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
 
 export class PlatformError extends Error {
@@ -18,6 +19,7 @@ async function digest(value) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(n => n.toString(16).padStart(2, '0')).join('');
 }
 const text = (value, limit = 160) => typeof value === 'string' && value.length > 0 && value.length <= limit && !/[\u0000-\u001f]/.test(value);
+const reasonText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 500 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 const money = cents => cents / 100;
 const stamp = now => new Date(now).toISOString();
 const event = (order, label, now) => order.events.push({ label, time: stamp(now), at: now, simulated: true });
@@ -33,9 +35,14 @@ export function getPublicWorkspace(workspace) {
 function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED'); }
 function project(order) {
   order.dispute = order.disputeState === 'OPEN';
-  if (order.productionState === 'CANCELLED') order.status = 'cancelled';
+  if (order.refundState === 'SIMULATED_REFUNDED') order.status = 'refunded';
+  else if (order.refundState === 'REQUESTED') order.status = 'refund_pending';
+  else if (order.productionState === 'CANCELLED') order.status = 'cancelled';
   else if (order.productionState === 'REVIEW_REQUIRED') order.status = 'review';
   else if (order.settlementState === 'SIMULATED_SETTLED') order.status = 'settled';
+  else if (order.settlementState === 'REQUESTED') order.status = 'settling';
+  else if (order.settlementState === 'FAILED') order.status = 'settlement_failed';
+  else if (order.acceptanceState === 'ACCEPTED') order.status = 'accepted';
   else if (order.logisticsState === 'DELIVERED') order.status = 'delivered';
   else if (order.logisticsState === 'SHIPPED') order.status = 'shipped';
   else order.status = { QUEUED: 'queued', PRINTING: 'printing', WAITING_REMOVAL: 'awaiting_pickup', QC_FAILED: 'qc_failed', QC_PASSED: 'ready_to_ship' }[order.productionState];
@@ -46,6 +53,7 @@ function dispatchNext(workspace, device, now) {
   const order = nextQueued(workspace, device);
   device.blockedReason = null;
   if (!order) return;
+  if (order.paymentState !== 'SIMULATED_FROZEN' || order.disputeState === 'OPEN' || order.refundState === 'REQUESTED' || order.refundState === 'SIMULATED_REFUNDED') { device.blockedReason = 'FUNDS_BLOCKED'; return; }
   if (!device.bedClear || !device.materialReady) { device.blockedReason = 'READINESS_REQUIRED'; return; }
   if (device.loadedMaterial !== order.material) { device.blockedReason = 'MATERIAL_MISMATCH'; return; }
   if (device.profileVersion !== order.quoteSnapshot.profileVersion || device.recipeVersion !== order.quoteSnapshot.recipeVersion) { device.blockedReason = 'PROFILE_MISMATCH'; return; }
@@ -105,6 +113,7 @@ async function makeQuotes(workspace, payload, now, idFactory) {
     }
     // q.material is a legacy UI cost; preserve the selected material separately.
     q.materialKey = config.material;
+    addQuoteEvidence(q, { model, device, orders: workspace.orders, now });
     q.fingerprint = await digest(q);
     quotes.push(q);
   }
@@ -130,7 +139,9 @@ function registerModel(workspace, payload, now, idFactory) {
   check(Array.isArray(dimensions) && (dimensions.length === 0 || (dimensions.length === 3 && dimensions.every(n => Number.isFinite(n) && n > 0 && n <= 100000))) && Number.isFinite(volume) && volume >= 0, 'INVALID_GEOMETRY', '模型几何无效', 400);
   if (!reviewed) check(dimensions.length === 3 && volume > 0 && volume <= dimensions.reduce((a, b) => a * b, 1) / 1000 * 1.01, 'INVALID_GEOMETRY', '实体体积与外形尺寸不一致', 400);
   check(payload.faceCount === undefined || (Number.isInteger(payload.faceCount) && payload.faceCount >= 0 && payload.faceCount <= 100000), 'INVALID_GEOMETRY', '三角面数量无效', 400);
-  const model = { id, name: payload.name, size: payload.size, sha256: payload.sha256, dimensions: [...dimensions], volume, closed: payload.closed === true, review: reviewed, format: payload.format, version: 1, createdAt: now, isSample: false, geometrySource: 'server-upload-parser', unit: 'mm', faceCount: payload.faceCount ?? 0 };
+  check(payload.analysisVersion === undefined || text(payload.analysisVersion, 100), 'INVALID_MODEL_ANALYSIS', '模型分析版本无效', 400);
+  check(payload.analysisNote === undefined || text(payload.analysisNote, 1000), 'INVALID_MODEL_ANALYSIS', '模型分析说明无效', 400);
+  const model = { analysisVersion: payload.analysisVersion ?? 'legacy-unversioned', analysisNote: payload.analysisNote ?? '历史模型记录，分析器版本未记录', id, name: payload.name, size: payload.size, sha256: payload.sha256, dimensions: [...dimensions], volume, closed: payload.closed === true, review: reviewed, format: payload.format, version: 1, createdAt: now, isSample: false, geometrySource: 'server-upload-parser', unit: 'mm', faceCount: payload.faceCount ?? 0 };
   workspace.models.push(model); return { model };
 }
 async function createOrder(workspace, payload, now, idFactory) {
@@ -154,10 +165,10 @@ async function createOrder(workspace, payload, now, idFactory) {
   if (!quote.review) dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   return { order };
 }
-function act(workspace, payload, now) {
+function act(workspace, payload, now, idFactory) {
   check(payload.demoAcknowledged === true, 'DEMO_ACK_REQUIRED', '请确认这是模拟操作');
   const action = payload.action;
-  check(['reset', 'complete-print', 'prepare-device', 'set-device-paused', 'collect-and-qc', 'ship', 'deliver', 'accept', 'dispute', 'cancel'].includes(action), 'UNKNOWN_ACTION', '未知操作', 400);
+  check(['reset', 'complete-print', 'prepare-device', 'set-device-paused', 'collect-and-qc', 'ship', 'deliver', 'accept', 'request-settlement', 'resolve-settlement', 'request-refund', 'resolve-refund', 'dispute', 'cancel'].includes(action), 'UNKNOWN_ACTION', '未知操作', 400);
   if (action === 'reset') {
     check(payload.confirm === 'RESET_DEMO', 'RESET_CONFIRMATION_REQUIRED', '重置需明确确认');
     const fresh = createWorkspace({ now });
@@ -200,7 +211,7 @@ function act(workspace, payload, now) {
     project(order); dispatchNext(workspace, device, now); return { order, device, blockedReason: device.blockedReason ?? null };
   }
   if (action === 'ship') {
-    check(order.productionState === 'QC_PASSED' && order.logisticsState === 'NONE', 'SHIPMENT_NOT_ALLOWED', '仅质检通过且未发货的订单可以发货');
+    check(order.productionState === 'QC_PASSED' && order.logisticsState === 'NONE' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState !== 'OPEN' && ['NONE', 'REJECTED'].includes(order.refundState), 'SHIPMENT_NOT_ALLOWED', '仅质检通过、款项冻结且无待处理退款或争议的未发货订单可以发货');
     check(text(payload.carrier, 80) && /^DEMO-[A-Za-z0-9-]{3,27}$/.test(payload.trackingNumber ?? ''), 'INVALID_TRACKING', '请输入承运商及 DEMO- 开头的演示运单', 400);
     order.courier = payload.carrier; order.tracking = payload.trackingNumber; order.logisticsState = 'SHIPPED'; event(order, '模拟承运商已揽收', now);
   } else if (action === 'deliver') {
@@ -208,19 +219,73 @@ function act(workspace, payload, now) {
     order.logisticsState = 'DELIVERED'; event(order, '模拟物流签收，等待客户验收', now);
   } else if (action === 'accept') {
     check(payload.customerAccepted === true, 'ACCEPTANCE_REQUIRED', '必须明确确认收货验收');
-    check(order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.acceptanceState === 'PENDING' && order.settlementState === 'NOT_REQUESTED' && order.disputeState === 'NONE' && order.refundState === 'NONE', 'SETTLEMENT_BLOCKED', '生产、交付、付款或争议条件尚不满足结算');
-    order.acceptanceState = 'ACCEPTED'; order.settlementState = 'SIMULATED_SETTLED'; order.paymentState = 'SIMULATED_RELEASED';
-    event(order, '模拟客户验收及结算完成（未发生真实转账）', now);
+    check(order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.acceptanceState === 'PENDING' && order.settlementState === 'NOT_REQUESTED' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState), 'SETTLEMENT_BLOCKED', '生产、交付、付款或争议条件尚不满足验收');
+    order.acceptanceState = 'ACCEPTED'; order.acceptedAt = now; order.settlementState = 'READY';
+    event(order, '客户已确认验收，款项仍冻结，等待模拟结算申请', now);
+  } else if (action === 'request-settlement') {
+    check(order.acceptanceState === 'ACCEPTED' && ['READY', 'FAILED'].includes(order.settlementState) && order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState), 'SETTLEMENT_BLOCKED', '须客户验收且没有待处理退款或争议，才可申请结算');
+    order.settlementState = 'REQUESTED';
+    if (order.settlementAttempt) (order.settlementHistory ??= []).push(clone(order.settlementAttempt));
+    order.settlementAttempt = { id: `SET-${idFactory()}`, status: 'REQUESTED', amountCents: order.totalCents, requestedAt: now, sequence: (order.settlementAttempt?.sequence ?? 0) + 1 };
+    event(order, '模拟结算申请已提交，等待处理结果，尚未释放款项', now);
+  } else if (action === 'resolve-settlement') {
+    check(order.settlementState === 'REQUESTED' && order.settlementAttempt?.status === 'REQUESTED', 'SETTLEMENT_NOT_PENDING', '没有待处理的结算申请');
+    check(payload.attemptId === order.settlementAttempt.id, 'SETTLEMENT_ATTEMPT_MISMATCH', '结算处理结果不属于当前申请');
+    check(['succeeded', 'failed'].includes(payload.outcome), 'INVALID_SETTLEMENT_RESULT', '请选择模拟结算成功或失败', 400);
+    check(order.acceptanceState === 'ACCEPTED' && order.productionState === 'QC_PASSED' && order.logisticsState === 'DELIVERED' && order.paymentState === 'SIMULATED_FROZEN' && order.disputeState === 'NONE' && ['NONE', 'REJECTED'].includes(order.refundState) && order.settlementAttempt.amountCents === order.totalCents, 'SETTLEMENT_BLOCKED', '当前状态不允许完成结算');
+    if (payload.outcome === 'failed') {
+      check(reasonText(payload.reason), 'RESULT_REASON_REQUIRED', '请填写模拟失败原因（最多 500 字）', 400);
+      order.settlementState = 'FAILED'; order.settlementAttempt.status = 'FAILED'; order.settlementAttempt.reason = payload.reason;
+      event(order, '模拟结算失败，款项仍冻结，可修正后重新申请', now);
+    } else {
+      order.settlementState = 'SIMULATED_SETTLED'; order.paymentState = 'SIMULATED_RELEASED'; order.settlementAttempt.status = 'SIMULATED_SUCCEEDED'; order.settledAt = now;
+      event(order, '模拟结算成功（未发生真实转账，也不代表银行到账）', now);
+    }
+    order.settlementAttempt.resolvedAt = now;
+  } else if (action === 'request-refund') {
+    check(order.paymentState === 'SIMULATED_FROZEN' && ['NOT_REQUESTED', 'READY', 'FAILED'].includes(order.settlementState) && ['NONE', 'REJECTED'].includes(order.refundState), 'REFUND_NOT_ALLOWED', '该订单不可申请退款，或已有资金操作待处理');
+    check(reasonText(payload.reason), 'REFUND_REASON_REQUIRED', '请填写退款原因（最多 500 字）', 400);
+    check(payload.amountCents === undefined || payload.amountCents === order.totalCents, 'PARTIAL_REFUND_UNSUPPORTED', '当前演示仅支持整单退款', 400);
+    order.refundState = 'REQUESTED';
+    if (order.refundRequest) (order.refundHistory ??= []).push(clone(order.refundRequest));
+    order.refundRequest = { id: `REF-${idFactory()}`, status: 'REQUESTED', amountCents: order.totalCents, reason: payload.reason, requestedAt: now, sequence: (order.refundRequest?.sequence ?? 0) + 1 };
+    event(order, '已申请整单模拟退款，暂停派发、发货与结算；运行中的设备不会自动停机', now);
+    if (order.productionState === 'QUEUED') dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
+  } else if (action === 'resolve-refund') {
+    check(order.refundState === 'REQUESTED' && order.refundRequest?.status === 'REQUESTED', 'REFUND_NOT_PENDING', '没有待处理的退款申请');
+    check(payload.requestId === order.refundRequest.id, 'REFUND_REQUEST_MISMATCH', '退款处理结果不属于当前申请');
+    check(typeof payload.approved === 'boolean', 'INVALID_REFUND_RESULT', '请选择批准或拒绝模拟退款', 400);
+    check(order.paymentState === 'SIMULATED_FROZEN' && ['NOT_REQUESTED', 'READY', 'FAILED'].includes(order.settlementState) && order.refundRequest.amountCents === order.totalCents, 'REFUND_NOT_ALLOWED', '当前资金状态不允许处理退款');
+    if (payload.approved) {
+      check(!['PRINTING', 'WAITING_REMOVAL'].includes(order.productionState) && !workspace.devices.some(device => device.orderId === order.id), 'REFUND_PRODUCTION_OCCUPIED', '请先完成模拟打印并取件释放设备，再确认退款；申请退款不会自动停机');
+      order.refundState = 'SIMULATED_REFUNDED'; order.paymentState = 'SIMULATED_REFUNDED'; order.refundRequest.status = 'SIMULATED_SUCCEEDED'; order.refundedAt = now;
+      if (order.productionState === 'QUEUED') order.productionState = 'CANCELLED';
+      // Retain acceptance and production evidence. A refund does not rewrite physical history.
+      if (['READY', 'FAILED'].includes(order.settlementState)) order.settlementState = 'CANCELLED';
+      event(order, '整单模拟退款已完成（未发生真实退款），该订单不可再发货或结算', now);
+    } else {
+      check(order.productionState !== 'CANCELLED', 'CANCELLATION_REFUND_REQUIRED', '已取消的已付款订单必须完成退款');
+      check(reasonText(payload.reason), 'RESULT_REASON_REQUIRED', '请填写拒绝退款原因（最多 500 字）', 400);
+      order.refundState = 'REJECTED'; order.refundRequest.status = 'REJECTED'; order.refundRequest.resolutionReason = payload.reason;
+      event(order, '模拟退款申请被拒绝，可重新申请或继续履约；争议不会自动关闭', now);
+    }
+    order.refundRequest.resolvedAt = now;
+    dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   } else if (action === 'dispute') {
     check(typeof payload.open === 'boolean', 'INVALID_INPUT', 'open 必须为布尔值', 400);
-    check(order.logisticsState === 'DELIVERED' && order.settlementState === 'NOT_REQUESTED', 'DISPUTE_NOT_ALLOWED', '该演示仅支持签收后、结算前的争议');
+    check(order.paymentState === 'SIMULATED_FROZEN' && order.productionState !== 'CANCELLED' && ['NOT_REQUESTED', 'READY', 'FAILED'].includes(order.settlementState), 'DISPUTE_NOT_ALLOWED', '仅已付款且未提交结算的有效订单可以处理争议');
     check((order.disputeState === 'OPEN') !== payload.open, 'NO_STATE_CHANGE', '争议状态未变化');
-    order.disputeState = payload.open ? 'OPEN' : 'NONE'; event(order, payload.open ? '已开启演示争议，暂停结算' : '演示争议已撤销', now);
+    order.disputeState = payload.open ? 'OPEN' : 'NONE'; event(order, payload.open ? '已开启演示争议，暂停派发、发货与结算，运行中的设备不会自动停机' : '演示争议已撤销，其他待处理退款仍会阻止结算', now);
+    if (order.productionState === 'QUEUED') dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   } else if (action === 'cancel') {
     check(['REVIEW_REQUIRED', 'QUEUED'].includes(order.productionState), 'CANCELLATION_NOT_ALLOWED', '已开始生产的订单不能直接取消');
     order.productionState = 'CANCELLED';
-    if (order.paymentState === 'SIMULATED_FROZEN') { order.refundState = 'SIMULATED_REFUNDED'; order.paymentState = 'SIMULATED_REFUNDED'; }
-    event(order, '订单已取消，模拟已付款金额已退回（无真实交易）', now);
+    if (order.paymentState === 'SIMULATED_FROZEN' && order.refundState !== 'REQUESTED') {
+      order.refundState = 'REQUESTED';
+      if (order.refundRequest) (order.refundHistory ??= []).push(clone(order.refundRequest));
+      order.refundRequest = { id: `REF-${idFactory()}`, status: 'REQUESTED', amountCents: order.totalCents, reason: '客户取消未生产订单', requestedAt: now, sequence: (order.refundRequest?.sequence ?? 0) + 1 };
+    }
+    event(order, order.paymentState === 'SIMULATED_FROZEN' ? '未生产订单已取消，退款申请待模拟处理，尚未退回款项' : '未付款工程询价已取消', now);
     dispatchNext(workspace, workspace.devices.find(d => d.farm === order.farm), now);
   } else throw new PlatformError('UNKNOWN_ACTION', '未知操作', 400);
   project(order); return { order };
@@ -246,7 +311,7 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
   else if (type === 'register-model') result = registerModel(workspace, payload, now, idFactory);
   else if (type === 'quote') result = await makeQuotes(workspace, payload, now, idFactory);
   else if (type === 'order') result = await createOrder(workspace, payload, now, idFactory);
-  else if (type === 'action') result = act(workspace, payload, now);
+  else if (type === 'action') result = act(workspace, payload, now, idFactory);
   else throw new PlatformError('UNKNOWN_COMMAND', '未知命令', 400);
   workspace.revision = original.revision + 1; workspace.updatedAt = now;
   result = { ...clone(result), mode: 'DEMO_ONLY', physicalCommandsSent: 0, moneyTransferred: 0 };

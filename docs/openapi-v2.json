@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.4 客户与履约沙盒 API（/api/v2）",
-    "version": "0.4.0",
+    "title": "共造 v0.5 客户与履约沙盒 API（/api/v2）",
+    "version": "0.5.0",
     "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md."
   },
   "servers": [
@@ -466,7 +466,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.4.0",
+            "const": "0.5.0",
             "type": "string"
           },
           "mode": {
@@ -674,6 +674,14 @@
           },
           "verified": {
             "type": "boolean"
+          },
+          "analysisVersion": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "analysisNote": {
+            "type": "string",
+            "maxLength": 1000
           }
         },
         "required": [
@@ -837,7 +845,8 @@
               "READINESS_REQUIRED",
               "MATERIAL_MISMATCH",
               "PROFILE_MISMATCH",
-              null
+              null,
+              "FUNDS_BLOCKED"
             ]
           }
         },
@@ -1132,6 +1141,10 @@
             "type": "string",
             "pattern": "^[a-f0-9]{64}$",
             "description": "SHA-256 of normalized delivery details, bound into the quote fingerprint. Consistency check, not anonymization. Present on new v0.4 quotes."
+          },
+          "estimation": {
+            "$ref": "#/components/schemas/QuoteEstimation",
+            "description": "Present on new v0.5 quotes and covered by the fingerprint. No slicer or real hardware is used."
           }
         },
         "required": [
@@ -1325,7 +1338,11 @@
             "type": "string",
             "enum": [
               "NOT_REQUESTED",
-              "SIMULATED_SETTLED"
+              "READY",
+              "REQUESTED",
+              "FAILED",
+              "SIMULATED_SETTLED",
+              "CANCELLED"
             ]
           },
           "disputeState": {
@@ -1339,6 +1356,8 @@
             "type": "string",
             "enum": [
               "NONE",
+              "REQUESTED",
+              "REJECTED",
               "SIMULATED_REFUNDED"
             ]
           },
@@ -1354,7 +1373,12 @@
               "shipped",
               "delivered",
               "settled",
-              "cancelled"
+              "cancelled",
+              "accepted",
+              "settling",
+              "settlement_failed",
+              "refund_pending",
+              "refunded"
             ]
           },
           "dispute": {
@@ -1389,6 +1413,92 @@
           "shippingAddress": {
             "$ref": "#/components/schemas/ShippingAddress",
             "description": "Immutable delivery snapshot at order creation; later profile edits do not change it. Historical orders may omit it."
+          },
+          "settlementAttempt": {
+            "type": "object",
+            "description": "Current simulated operation; its id must be echoed when resolving. No payment provider transaction.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "amountCents": {
+                "type": "integer"
+              },
+              "sequence": {
+                "type": "integer"
+              },
+              "requestedAt": {
+                "type": "number"
+              },
+              "resolvedAt": {
+                "type": "number"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "resolutionReason": {
+                "type": "string"
+              }
+            }
+          },
+          "refundRequest": {
+            "type": "object",
+            "description": "Current simulated operation; its id must be echoed when resolving. No payment provider transaction.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "amountCents": {
+                "type": "integer"
+              },
+              "sequence": {
+                "type": "integer"
+              },
+              "requestedAt": {
+                "type": "number"
+              },
+              "resolvedAt": {
+                "type": "number"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "resolutionReason": {
+                "type": "string"
+              }
+            }
+          },
+          "settlementHistory": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Previous completed attempts retained when a new attempt is created. Historical v0.4 records may omit this field."
+          },
+          "refundHistory": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Previous completed attempts retained when a new attempt is created. Historical v0.4 records may omit this field."
+          },
+          "acceptedAt": {
+            "type": "number",
+            "description": "Unix milliseconds. Absent until the corresponding simulated event."
+          },
+          "settledAt": {
+            "type": "number",
+            "description": "Unix milliseconds. Absent until the corresponding simulated event."
+          },
+          "refundedAt": {
+            "type": "number",
+            "description": "Unix milliseconds. Absent until the corresponding simulated event."
           }
         },
         "required": [
@@ -1651,7 +1761,11 @@
               "deliver",
               "accept",
               "dispute",
-              "cancel"
+              "cancel",
+              "request-settlement",
+              "resolve-settlement",
+              "request-refund",
+              "resolve-refund"
             ]
           },
           "demoAcknowledged": {
@@ -1710,6 +1824,32 @@
           },
           "open": {
             "type": "boolean"
+          },
+          "attemptId": {
+            "type": "string",
+            "description": "Current order.settlementAttempt.id"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "Current order.refundRequest.id, not the HTTP response requestId."
+          },
+          "outcome": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ]
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "amountCents": {
+            "type": "integer",
+            "description": "Optional; if supplied, must equal the full order total. Partial refund not implemented."
           }
         },
         "required": [
@@ -1869,9 +2009,110 @@
                 "id"
               ]
             }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "request-settlement"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "resolve-settlement"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "attemptId",
+                "outcome"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "request-refund"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "reason"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "resolve-refund"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "id",
+                "requestId",
+                "approved"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "resolve-settlement"
+                },
+                "outcome": {
+                  "const": "failed"
+                }
+              },
+              "required": [
+                "outcome"
+              ]
+            },
+            "then": {
+              "required": [
+                "reason"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "const": "resolve-refund"
+                },
+                "approved": {
+                  "const": false
+                }
+              },
+              "required": [
+                "approved"
+              ]
+            },
+            "then": {
+              "required": [
+                "reason"
+              ]
+            }
           }
         ],
-        "description": "Owner sandbox may perform both customer and farm actions. id targets a device for complete-print/prepare-device/set-device-paused, otherwise an order; reset needs no id. False paused is rejected; use prepare-device to resume. Reset preserves customer delivery profile and merchant registration."
+        "description": "Sandbox actions only. Acceptance sets READY, never releases money. Settlement/refund result actions require the active operation ID. Paid cancellation requests a refund; pending production occupancy prevents refund approval. One owner can simulate both parties; not production RBAC."
       },
       "ModelResponse": {
         "allOf": [
@@ -1957,7 +2198,8 @@
                   "READINESS_REQUIRED",
                   "MATERIAL_MISMATCH",
                   "PROFILE_MISMATCH",
-                  null
+                  null,
+                  "FUNDS_BLOCKED"
                 ]
               }
             },
@@ -2144,6 +2386,93 @@
             ]
           }
         ]
+      },
+      "QuoteEstimation": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          },
+          "method": {
+            "enum": [
+              "GEOMETRY_HEURISTIC",
+              "MANUAL_REVIEW"
+            ]
+          },
+          "confidence": {
+            "const": "UNVERIFIED"
+          },
+          "slicer": {
+            "type": "null"
+          },
+          "machineValidated": {
+            "const": false
+          },
+          "analysisVersion": {
+            "type": "string"
+          },
+          "analysisNote": {
+            "type": "string"
+          },
+          "queueJobs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queueBasis": {
+            "const": "FULL_ESTIMATED_HOURS_OF_ACTIVE_SANDBOX_ORDERS"
+          },
+          "deviceState": {
+            "type": "string"
+          },
+          "capacityReserved": {
+            "const": false
+          },
+          "estimatedArrival": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "earliest": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "latest": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "stages": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "productionHours": {
+                "type": "number"
+              },
+              "queueHours": {
+                "type": "number"
+              },
+              "preparationDays": {
+                "type": "number"
+              },
+              "transitDays": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       }
     }
   }

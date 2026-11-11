@@ -1,0 +1,36 @@
+// Explain the sandbox estimate without implying that a slicer or real machine ran.
+// All evidence is added before the quote fingerprint is generated.
+export function addQuoteEvidence(quote, { model, device, orders, now }) {
+  const review = quote.review === true;
+  const queue = orders.filter(order => order.farm === quote.farm.id && ['PRINTING', 'QUEUED'].includes(order.productionState));
+  const dateAt = days => new Date(now + days * 86400000).toISOString();
+  quote.estimation = {
+    schemaVersion: 1,
+    method: review ? 'MANUAL_REVIEW' : 'GEOMETRY_HEURISTIC',
+    confidence: 'UNVERIFIED',
+    slicer: null,
+    machineValidated: false,
+    analysisVersion: model.analysisVersion || (model.isSample ? 'sandbox-fixture-v1' : 'legacy-analysis-unknown'),
+    analysisNote: model.analysisNote || '几何检查不代表可制造性验证；尚未验证自相交、壁厚、公差或支撑。',
+    queueJobs: queue.length,
+    queueBasis: 'FULL_ESTIMATED_HOURS_OF_ACTIVE_SANDBOX_ORDERS',
+    deviceState: device.state,
+    capacityReserved: false,
+    estimatedArrival: review ? null : { earliest: dateAt(quote.days[0]), latest: dateAt(quote.days[1]) },
+    stages: review ? null : {
+      productionHours: quote.productionHours,
+      queueHours: quote.queueHours,
+      preparationDays: quote.preparationDays,
+      transitDays: [...quote.transitDays],
+    },
+    assumptions: review ? [
+      '需工程审核后再确定价格和交期；本报价未收款、未预约产能。',
+    ] : [
+      '材料量与机时使用体积、密度及示例工价公式估算，未运行切片器。',
+      '排队时长按当前演示订单的完整预计工时累计，未扣除已加工时长；按每天 8 小时演示产能计算。',
+      '未校准实机速度、支撑、填充、损耗、返工、节假日和实际承运商时效。',
+      '到货日期为测算时点的预计区间，不是交付承诺，也不锁定设备产能。',
+    ],
+  };
+  return quote;
+}

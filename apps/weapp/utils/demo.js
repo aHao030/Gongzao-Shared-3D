@@ -3,7 +3,11 @@ const ORDERS_KEY = 'shared_fabrication_demo_orders_v1';
 const materials = ['PLA 塑料', 'PETG 塑料', '工程树脂', '铝合金（金属打印）', 'CNC 铝件'];
 const basePrices = [48, 58, 68, 368, 228];
 function stepsFor(order) {
-  return ['已保存演示订单'].concat(order.requiresReview ? ['待商家工程审核', '模拟工程审核通过'] : []).concat(['待商家检查材料与设备', '模拟生产中', '模拟打印 / 加工完成', '模拟取件与后处理', '模拟质检通过', '模拟物流运输', '模拟客户收货', '模拟结算完成']);
+  const start = ['已保存演示订单'].concat(order.requiresReview ? ['待商家工程审核', '模拟工程审核通过'] : []);
+  const production = ['待商家检查材料与设备', '模拟生产中', '模拟打印 / 加工完成', '模拟取件与后处理', '模拟质检通过', '模拟物流运输'];
+  // Retain legacy numeric stage positions; only newly created v2 flows add steps.
+  if (order.flowVersion !== 2) return start.concat(production, ['模拟客户确认验收', '模拟结算完成']);
+  return start.concat(['模拟付款成功'], production, ['模拟物流签收', '模拟客户确认验收', '模拟结算申请', '模拟结算完成']);
 }
 function getSpec() { return wx.getStorageSync(SPEC_KEY) || null; }
 function saveSpec(materialIndex, quantity) {
@@ -27,7 +31,7 @@ function getQuotes(spec) {
 function readOrders() { const value = wx.getStorageSync(ORDERS_KEY); return Array.isArray(value) ? value : []; }
 function decorate(order) {
   const steps = stepsFor(order);
-  return Object.assign({}, order, { status: steps[order.stage], canAdvance: order.stage < steps.length - 1, timeline: steps.map((label, index) => ({ label, number: index + 1, done: index <= order.stage })), logistics: order.stage >= steps.indexOf('模拟物流运输') ? '模拟运输节点 · 未连接承运商' : '尚未模拟发货', settlement: order.stage === steps.length - 1 ? '演示已完成；未发生任何资金转移' : '待模拟收货；无真实支付或结算', reviewNote: order.requiresReview ? '金属 / CNC：须完成模型、工艺、支撑或夹具/刀路审核，再确认现场条件。' : '生产前须由商家检查设备、材料与任务配置。' });
+  return Object.assign({}, order, { status: steps[order.stage], canAdvance: order.stage < steps.length - 1, timeline: steps.map((label, index) => ({ label, number: index + 1, done: index <= order.stage })), logistics: order.stage >= steps.indexOf('模拟物流运输') ? '模拟运输节点 · 未连接承运商' : '尚未模拟发货', settlement: (order.stage === steps.length - 1 ? '模拟结算完成；不代表银行到账' : order.stage >= steps.indexOf('模拟客户确认验收') ? '客户已模拟验收，结算尚未完成' : '尚未模拟验收，不能结算') + '；未发生真实资金转移', reviewNote: order.requiresReview ? '金属 / CNC：须完成模型、工艺、支撑或夹具/刀路审核，再确认现场条件。' : '生产前须由商家检查设备、材料与任务配置。' });
 }
 function listOrders() { return readOrders().map(decorate); }
 function createOrder(quoteId) {
@@ -35,7 +39,7 @@ function createOrder(quoteId) {
   const quote = getQuotes(spec).find(item => item.id === quoteId);
   if (!quote) throw new Error('NO_QUOTE');
   const id = 'DEMO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
-  const order = { id, modelName: spec.modelName, material: spec.material, quantity: spec.quantity, farm: quote.name, price: quote.price, lead: quote.lead, requiresReview: spec.materialIndex > 2, stage: 0 };
+  const order = { id, modelName: spec.modelName, material: spec.material, quantity: spec.quantity, farm: quote.name, price: quote.price, lead: quote.lead, requiresReview: spec.materialIndex > 2, flowVersion: 2, stage: 0 };
   wx.setStorageSync(ORDERS_KEY, [order].concat(readOrders()).slice(0, 20));
   return order;
 }

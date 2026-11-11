@@ -4,7 +4,7 @@ const { createApiClient, normalizeApiBase } = require('./api-client');
 const { getAccessToken } = require('./auth');
 const { wxTransport } = require('./transport');
 const materialCodes = ['PLA', 'PETG', 'RESIN', 'ALUMINUM', 'CNC'];
-const statusNames = { awaiting_pickup: '生产完成待取件', qc_failed: '质检未通过', ready_to_ship: '质检通过待发货', review: '工程审核中', queued: '等待设备', printing: '生产中', printed: '生产完成待取件', qc: '待质检', ready: '待发货', shipped: '运输中', delivered: '已签收待验收', settled: '模拟结算完成', cancelled: '已取消' };
+const statusNames = { awaiting_pickup: '生产完成待取件', qc_failed: '质检未通过', ready_to_ship: '质检通过待发货', review: '工程审核中', queued: '等待设备', printing: '生产中', printed: '生产完成待取件', qc: '待质检', ready: '待发货', shipped: '运输中', delivered: '已签收待验收', accepted: '已验收待模拟结算', settling: '模拟结算处理中', settlement_failed: '模拟结算失败', refund_pending: '退款申请处理中', refunded: '模拟退款完成', settled: '模拟结算完成', cancelled: '已取消' };
 let mode = 'local';
 let client;
 let selectedRemoteQuotes = [];
@@ -49,7 +49,7 @@ async function getQuotes(spec) {
   completeKey(scope);
   selectedRemoteQuotes = result.quotes;
   return result.quotes.map(quote => ({ id: quote.quoteId, name: quote.farm && quote.farm.name || '服务端工坊', tag: quote.review ? '需工程审核' : '服务端示例报价', priceText: priceText(quote.total),
-    lead: Array.isArray(quote.days) ? quote.days.join('–') + ' 个工作日' : '待确认', production: typeof quote.productionHours === 'number' ? quote.productionHours.toFixed(1) + ' 小时' : '工程确认', review: !!quote.review }));
+    lead: Array.isArray(quote.days) ? quote.days.join('–') + ' 天（演示预计）' : '待确认', production: typeof quote.productionHours === 'number' ? quote.productionHours.toFixed(1) + ' 小时' : '工程确认', review: !!quote.review }));
 }
 function requestKey() { return 'weapp-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) + '-' + Math.random().toString(36).slice(2, 12); }
 async function createOrder(quoteId) {
@@ -76,12 +76,19 @@ async function saveCustomerProfile(input) {
   return result;
 }
 function remoteOrder(order) {
-  const label = order.dispute ? '争议处理中' : (statusNames[order.status] || String(order.status || '等待服务端状态'));
+  const label = order.refundState === 'REQUESTED' ? '退款申请处理中' : order.disputeState === 'OPEN' || order.dispute ? '争议处理中' : (statusNames[order.status] || String(order.status || '等待服务端状态'));
+  const settlementNames = { NOT_REQUESTED: '尚未验收；未申请结算', READY: '客户已验收，尚未申请结算', REQUESTED: '模拟结算申请处理中', FAILED: '模拟结算失败，等待处理', SIMULATED_SETTLED: '模拟结算完成；不代表银行到账' };
+  let settlement = settlementNames[order.settlementState] || (order.status === 'settled' ? '模拟结算完成；不代表银行到账' : '等待服务端资金状态');
+  if (order.refundState === 'REQUESTED') settlement = '退款申请处理中，暂停结算';
+  else if (order.refundState === 'SIMULATED_REFUNDED') settlement = '模拟退款完成';
+  else if (order.disputeState === 'OPEN' || order.dispute) settlement = '争议处理中，暂停结算';
+  else if (order.refundState === 'REJECTED') settlement += '；退款申请已驳回';
+  if (order.paymentState === 'UNPAID') settlement = '尚未付款';
   const events = Array.isArray(order.events) ? order.events : [];
   return { id: order.id, modelName: order.modelName || '服务端示例模型', material: order.material || '待确认', quantity: order.qty, farm: order.farmName || (typeof order.farm === 'object' ? order.farm.name : order.farm) || '服务端工坊', priceText: priceText(order.total), status: label,
-    canAdvance: false, terminal: ['settled', 'cancelled'].includes(order.status), timeline: events.length ? events.map((event, index) => ({ label: event.label || event.action || '服务端事件', number: index + 1, done: true })) : [{ label, number: 1, done: true }],
-    logistics: order.tracking ? '服务端沙盒单号：' + order.tracking : '尚无服务端物流信息', settlement: order.status === 'settled' ? '模拟结算完成；未转移真实资金' : '由服务端校验验收与结算条件',
-    reviewNote: '服务端沙盒记录。小程序不提供生产、取件、质检或资金推进按钮。' };
+    canAdvance: false, terminal: ['settled', 'cancelled', 'refunded'].includes(order.status), timeline: events.length ? events.map((event, index) => ({ label: event.label || event.action || '服务端事件', number: index + 1, done: true })) : [{ label, number: 1, done: true }],
+    logistics: order.tracking ? '服务端沙盒单号：' + order.tracking : '尚无服务端物流信息', settlement: settlement + '；未转移真实资金',
+    reviewNote: '服务端沙盒记录。物流签收与客户验收分开；验收、售后及商家履约模拟请在已登录的网页端操作。' };
 }
 async function listOrders() {
   if (mode === 'local') return demo.listOrders().map(order => Object.assign({}, order, { priceText: priceText(order.price), terminal: !order.canAdvance }));

@@ -30,11 +30,11 @@ node --test apps/tests/*.test.mjs
 | `getQuotes(input, key)` | `POST /api/v2/quotes` | input 含 modelId/material/quality/qty/unit；配送地区由服务端账号地址推导，返回 quotes/workspace |
 | `createOrder(quoteId, key)` | `POST /api/v2/orders` | 自动带 `demoAcknowledged: true`；返回 order/workspace |
 | `uploadModel(bytes, filename, key)` | `POST /api/v2/models` | 原始二进制，`application/octet-stream`，编码后的 `X-File-Name` |
-| `customerAction(action, id, extra, key)` | `POST /api/v2/actions` | 仅 accept/dispute/cancel；不能调用商家生产或设备操作 |
+| `customerAction(action, id, extra, key)` | `POST /api/v2/actions` | 仅 accept/dispute/cancel/request-refund；不能调用商家生产、退款审批或结算操作 |
 
 所有 POST 均需要 `Idempotency-Key`（8–128 位字母、数字或 `_.:-`）。一次操作及其重试必须复用同一个键；成功后新的用户操作再生成新键。网络失败不会被转换成本地成功。微信 adapter 将尚未确认完成的报价/创建订单幂等键保存在本机，直至收到成功响应；它不把令牌写入该存储。
 
-客户动作需提供实际业务字段：`accept` 使用 `{ customerAccepted: true }`，`dispute` 使用 `{ open: true }` 或 `{ open: false }`，`cancel` 不需额外业务字段。服务端仍负责权限、状态条件和幂等校验。当前小程序远端订单页只读，尚未将这些动作连接到按钮。
+客户动作需提供实际业务字段：`accept` 使用 `{ customerAccepted: true }`，`dispute` 使用 `{ open: true }` 或 `{ open: false }`，`cancel` 不需额外业务字段；`request-refund` 使用 `{ reason: "退款说明" }`。验收只进入待结算，不表示资金已释放或银行到账。服务端仍负责权限、状态条件和幂等校验。当前小程序远端订单页只读，尚未将这些动作连接到按钮。
 
 模型上传只提供底层接口，小程序页面仍仅使用内置示例。不要据此声称小程序已实现真实文件上传或模型解析。
 
