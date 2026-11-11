@@ -34,6 +34,24 @@
       && payment.exchangeRate === null && payment.livePaymentsEnabled === false && isText(payment.note) && Array.isArray(payment.methods)
       && payment.methods.every(method => method && isText(method.id) && isText(method.label) && method.status === 'NOT_CONFIGURED' && method.enabled === false);
   }
+  function objectInput(value, code, message) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw fail(code, message);
+    return value;
+  }
+  function recordId(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 160 && !/[\u0000-\u001f]/.test(value);
+  }
+  function recordResponse(value, key) {
+    const record = value && value[key];
+    if (!record || typeof record !== 'object' || Array.isArray(record) || !recordId(record.id))
+      throw fail('INVALID_RESPONSE', '服务端响应缺少有效的 ' + key + ' 记录。');
+    return value;
+  }
+  function listResponse(value, key) {
+    if (!value || !Array.isArray(value[key]) || !value[key].every(item => item && typeof item === 'object' && !Array.isArray(item) && recordId(item.id)))
+      throw fail('INVALID_RESPONSE', '服务端响应缺少有效的 ' + key + ' 列表。');
+    return value;
+  }
   function createApiClient(options) {
     const settings = options || {};
     const apiBase = normalizeApiBase(settings.apiBase);
@@ -95,6 +113,52 @@
           throw fail('INVALID_RESPONSE', '国家与地址配置不完整；请稍后重试。');
         if (countryCode !== undefined && result.market.countryCode !== countryCode) throw fail('INVALID_RESPONSE', '服务端返回的国家配置与请求不一致。');
         return result;
+      },
+      async getCapabilities() {
+        return listResponse(await request('GET', '/capabilities'), 'capabilities');
+      },
+      async getMerchantCapabilities() {
+        return listResponse(await request('GET', '/merchant/capabilities'), 'capabilities');
+      },
+      async saveCapability(input, idempotencyKey) {
+        objectInput(input, 'CAPABILITY_REQUIRED', '请提供制造能力配置。');
+        objectInput(input.capability, 'CAPABILITY_REQUIRED', '请提供制造能力配置。');
+        if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)
+          throw fail('REVISION_REQUIRED', '保存制造能力需要已读取的配置版本，新配置使用版本 0。');
+        const result = await request('POST', '/merchant/capabilities', Object.assign({}, input, { demoAcknowledged: true }), { 'Idempotency-Key': keyHeader(idempotencyKey) });
+        return recordResponse(result, 'capability');
+      },
+      async getInquiries() {
+        return listResponse(await request('GET', '/inquiries'), 'inquiries');
+      },
+      async getMerchantInquiries() {
+        return listResponse(await request('GET', '/merchant/inquiries'), 'inquiries');
+      },
+      async createInquiry(input, idempotencyKey) {
+        objectInput(input, 'INQUIRY_REQUIRED', '请提供模型与定制需求。');
+        if (!recordId(input.modelId) || !recordId(input.capabilityId))
+          throw fail('MODEL_CAPABILITY_REQUIRED', '请选择已上传的模型和商家制造能力。');
+        if (input.dimensionsConfirmed !== true) throw fail('DIMENSIONS_CONFIRMATION_REQUIRED', '请先确认模型尺寸与单位。');
+        const result = await request('POST', '/inquiries', Object.assign({}, input, { demoAcknowledged: true }), { 'Idempotency-Key': keyHeader(idempotencyKey) });
+        return recordResponse(result, 'inquiry');
+      },
+      async submitProposal(input, idempotencyKey) {
+        objectInput(input, 'PROPOSAL_REQUIRED', '请提供确认后的制造方案。');
+        if (!recordId(input.inquiryId)) throw fail('INQUIRY_REQUIRED', '请先选择客户询价。');
+        if (!Number.isInteger(input.expectedInquiryRevision) || input.expectedInquiryRevision < 1)
+          throw fail('REVISION_REQUIRED', '提交方案需要当前询价版本，请先重新查询。');
+        const result = await request('POST', '/merchant/proposals', Object.assign({}, input, { demoAcknowledged: true }), { 'Idempotency-Key': keyHeader(idempotencyKey) });
+        return recordResponse(result, 'inquiry');
+      },
+      async acceptProposal(input, idempotencyKey) {
+        objectInput(input, 'PROPOSAL_REQUIRED', '请提供需要确认的方案。');
+        if (!recordId(input.inquiryId)) throw fail('INQUIRY_REQUIRED', '请先选择客户询价。');
+        if (!Number.isInteger(input.proposalRevision) || input.proposalRevision < 1)
+          throw fail('REVISION_REQUIRED', '请选择要确认的具体方案版本。');
+        if (input.customerAccepted !== true) throw fail('CUSTOMER_CONFIRMATION_REQUIRED', '客户需明确确认当前方案、费用和交期。');
+        const result = await request('POST', '/inquiries/accept', Object.assign({}, input, { demoAcknowledged: true }), { 'Idempotency-Key': keyHeader(idempotencyKey) });
+        recordResponse(result, 'inquiry');
+        return recordResponse(result, 'order');
       },
       async getQuotes(input, idempotencyKey) {
         const result = await request('POST', '/quotes', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });

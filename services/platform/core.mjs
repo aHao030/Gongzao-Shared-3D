@@ -1,3 +1,4 @@
+import { getCapabilities, getInquiries, saveCapability, createInquiry, saveProposal, acceptInquiry } from './inquiries.mjs';
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
 import { ACCOUNTING_CURRENCY, quoteMarketContext } from './market.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
@@ -32,7 +33,7 @@ export function createWorkspace({ now = Date.now() } = {}) {
   return { schemaVersion: 2, revision: 0, createdAt: now, updatedAt: now, mode: 'DEMO_SANDBOX', orders: [], devices: freshDevices(), quotes: [], models: [{ ...clone(sampleModel), createdAt: now }], idempotency: {} };
 }
 export function getPublicWorkspace(workspace) {
-  return clone({ customerProfile: getCustomerProfile(workspace), revision: workspace.revision, orders: workspace.orders, devices: workspace.devices, models: workspace.models.map(({ blobKey, ...model }) => model) });
+  return clone({ customerProfile: getCustomerProfile(workspace), revision: workspace.revision, orders: workspace.orders, devices: workspace.devices, inquiries: getInquiries(workspace).inquiries, models: workspace.models.map(({ blobKey, ...model }) => model) });
 }
 function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED'); }
 function project(order) {
@@ -93,7 +94,11 @@ async function makeQuotes(workspace, payload, now, idFactory) {
   const quotes = [];
   for (const farm of farms) {
     const device = workspace.devices.find(d => d.farm === farm.id);
-    const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, addressRevision, addressFingerprint, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: reviewReasons.length > 0, reviewReasons: [...reviewReasons], issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
+    const capability = workspace.manufacturingCapabilities ? getCapabilities(workspace).capabilities.find(c => c.farmId === farm.id && (!payload.capabilityId || c.id === payload.capabilityId) && c.enabled && c.materials.includes(config.material) && c.qualities.includes(config.quality) && (geometry.dimensions.length !== 3 || geometry.dimensions.every((n, i) => n <= c.maxDimensions[i]))) : null;
+    const configuredReasons = workspace.manufacturingCapabilities ? !capability ? ['CAPABILITY_UNAVAILABLE'] : capability.quoteMode === 'MERCHANT_REVIEW' ? ['CAPABILITY_REVIEW'] : [] : [];
+    const farmReviewReasons = [...reviewReasons, ...configuredReasons];
+    const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, addressRevision, addressFingerprint, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: farmReviewReasons.length > 0, reviewReasons: farmReviewReasons, issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
+    if (workspace.manufacturingCapabilities) Object.assign(q, { capabilityId: capability?.id ?? null, capabilityRevision: capability?.revision ?? null, capabilityUnavailable: !capability });
     Object.assign(q, quoteMarketContext(address, q.review), { currency: ACCOUNTING_CURRENCY, priceStatus: q.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
     if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
@@ -152,12 +157,18 @@ function registerModel(workspace, payload, now, idFactory) {
   const model = { analysisVersion: payload.analysisVersion ?? 'legacy-unversioned', analysisNote: payload.analysisNote ?? '历史模型记录，分析器版本未记录', id, name: payload.name, size: payload.size, sha256: payload.sha256, dimensions: [...dimensions], volume, closed: payload.closed === true, review: reviewed, format: payload.format, version: 1, createdAt: now, isSample: false, geometrySource: 'server-upload-parser', unit: 'mm', faceCount: payload.faceCount ?? 0 };
   workspace.models.push(model); return { model };
 }
-async function createOrder(workspace, payload, now, idFactory) {
+async function createOrder(workspace, payload, now, idFactory, acceptedProposal = {}) {
   check(payload.demoAcknowledged === true, 'DEMO_ACK_REQUIRED', '请确认这是模拟订单');
   check(workspace.orders.length < 500, 'ORDER_CAPACITY', '演示订单最多保留 500 笔');
   check(text(payload.quoteId), 'INVALID_QUOTE_ID', '报价 ID 无效', 400);
   const quote = workspace.quotes.find(q => q.quoteId === payload.quoteId);
   check(quote, 'QUOTE_NOT_FOUND', '报价不存在，请重新获取', 404);
+  check(!quote.inquiryId || (quote.inquiryId === acceptedProposal.acceptedInquiryId && quote.proposalRevision === acceptedProposal.acceptedProposalRevision), 'PROPOSAL_CONFIRMATION_REQUIRED', '请通过需求页面确认当前方案后下单');
+  if (workspace.manufacturingCapabilities || quote.capabilityId) {
+    const capability = getCapabilities(workspace).capabilities.find(c => c.id === quote.capabilityId);
+    check(capability && !quote.capabilityUnavailable && capability.enabled, 'CAPABILITY_UNAVAILABLE', '制造能力已暂停或不匹配，请重新选择制造方案');
+    check(capability.revision === quote.capabilityRevision && capability.materials.includes(quote.materialKey) && capability.qualities.includes(quote.quality), 'CAPABILITY_CHANGED', '制造能力配置已更新，请重新报价');
+  }
   check(now < quote.expiresAt, 'QUOTE_EXPIRED', '报价已过期，请重新获取');
   check(!quote.usedByOrderId, 'QUOTE_USED', '该报价已创建订单，请获取新报价');
   const { fingerprint, usedByOrderId, ...terms } = quote;
@@ -187,7 +198,7 @@ function act(workspace, payload, now, idFactory) {
     check(payload.confirm === 'RESET_DEMO', 'RESET_CONFIRMATION_REQUIRED', '重置需明确确认');
     const fresh = createWorkspace({ now });
     // Preserve the request ledger so old mutation keys cannot replay after reset.
-    Object.assign(workspace, { orders: fresh.orders, devices: fresh.devices, quotes: fresh.quotes, models: fresh.models, pricingEvidence: {} });
+    Object.assign(workspace, { orders: fresh.orders, devices: fresh.devices, quotes: fresh.quotes, models: fresh.models, pricingEvidence: {}, inquiries: [], proposalEconomics: [] });
     return { reset: true };
   }
   check(text(payload.id), 'INVALID_RESOURCE_ID', '订单或设备 ID 无效', 400);
@@ -318,11 +329,11 @@ function act(workspace, payload, now, idFactory) {
 export async function applyCommand(original, command, { now = Date.now(), idFactory = () => crypto.randomUUID() } = {}) {
   check(command && typeof command === 'object' && !Array.isArray(command), 'INVALID_INPUT', '命令无效', 400);
   const { type, payload = {}, idempotencyKey } = command;
-  check(['register-model', 'quote', 'order', 'action', 'customer-profile', 'pricing-profile'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
+  check(['register-model', 'quote', 'order', 'action', 'customer-profile', 'pricing-profile', 'capability', 'inquiry', 'proposal', 'accept-inquiry'].includes(type), 'UNKNOWN_COMMAND', '未知命令', 400);
   check(text(idempotencyKey, 160), 'IDEMPOTENCY_REQUIRED', '写操作必须提供幂等标识', 400);
   check(payload && typeof payload === 'object' && !Array.isArray(payload), 'INVALID_INPUT', 'payload 必须为对象', 400);
   check(Number.isFinite(now) && now >= 0, 'INVALID_CLOCK', '服务端时间无效');
-  if (type === 'pricing-profile') check(original.merchant?.profile, 'MERCHANT_REQUIRED', '请先开通商家工作台', 403);
+  if (['pricing-profile', 'capability', 'proposal'].includes(type)) check(original.merchant?.profile, 'MERCHANT_REQUIRED', '请先开通商家工作台', 403);
   const requestDigest = await digest({ type, payload });
   if (own(original.idempotency, idempotencyKey)) {
     const cached = original.idempotency[idempotencyKey];
@@ -332,7 +343,11 @@ export async function applyCommand(original, command, { now = Date.now(), idFact
   check(Object.keys(original.idempotency).length < 2000, 'IDEMPOTENCY_CAPACITY', '演示空间操作记录已达 2000 条，请创建新的演示空间');
   const workspace = clone(original);
   let result;
-  if (type === 'pricing-profile') result = savePricingProfile(workspace, payload, now);
+  if (type === 'capability') result = saveCapability(workspace, payload, now, idFactory);
+  else if (type === 'inquiry') result = await createInquiry(workspace, payload, now, idFactory, makeQuotes);
+  else if (type === 'proposal') result = await saveProposal(workspace, payload, now);
+  else if (type === 'accept-inquiry') result = await acceptInquiry(workspace, payload, now, idFactory, createOrder);
+  else if (type === 'pricing-profile') result = savePricingProfile(workspace, payload, now);
   else if (type === 'customer-profile') result = saveCustomerProfile(workspace, payload, now);
   else if (type === 'register-model') result = registerModel(workspace, payload, now, idFactory);
   else if (type === 'quote') result = await makeQuotes(workspace, payload, now, idFactory);

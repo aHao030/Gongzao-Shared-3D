@@ -1,10 +1,10 @@
-# 共造 v0.7 客户与履约沙盒 API（/api/v2）
+# 共造 v0.8 模型需求、方案与履约沙盒 API（/api/v2）
 
 本文件描述 `services/platform` 当前实现；机器可读契约为 [openapi-v2.json](./openapi-v2.json)。旧 [API_CONTRACT.md](./API_CONTRACT.md) 描述独立的 v1 内存演示，不能用作当前网页的接口说明。
 
 ## 能力范围
 
-v0.4 提供按 owner 隔离的客户资料与收货地址、服务端工作空间、原始文件保存与下载、STL 几何分析、服务端报价快照、订单状态迁移及持久幂等记录。农场、设备、价格、付款、物流、验收和结算都是沙盒数据：**没有真实支付、设备控制、切片器、快递查询或微信登录接入**。成功写入响应固定携带 `physicalCommandsSent: 0`、`moneyTransferred: 0`。
+当前实现提供按 owner 隔离的客户资料与收货地址、服务端工作空间、原始文件保存与下载、STL 几何分析、模型需求、商家能力与方案版本、服务端报价快照、订单状态迁移及持久幂等记录。农场、设备、价格、付款、物流、验收和结算都是沙盒数据：**没有真实支付、设备控制、切片器、快递查询或微信登录接入**。成功写入响应固定携带 `physicalCommandsSent: 0`、`moneyTransferred: 0`。
 
 一个 owner 可在自己的沙盒内同时执行客户与农场操作；这是流程验证权限，**不是已实现的多商户 RBAC 或独立交易双方认证**。`complete-print`、`deliver` 等动作是操作者推进模拟，不是可信设备事件或承运商回调。
 
@@ -14,7 +14,7 @@ v0.4 提供按 owner 隔离的客户资料与收货地址、服务端工作空�
 
 | 部署 | 身份来源 | 行为 |
 | --- | --- | --- |
-| 本地服务 | `coforge_sandbox` Cookie | 首次 `GET /api/v2/session` 创建随机 owner 与 30 天会话。Cookie 为 HttpOnly、SameSite=Strict、Path=/；本地 HTTP 不设置 Secure。后续请求携带同一 Cookie。会话没有用户账户恢复能力，丢失 Cookie 不会自动找回原空间。 |
+| 本地服务 | 共造账号 Cookie；客户可沿用 `coforge_sandbox` 匿名空间 | `/api/auth` 提供邮箱密码注册、登录和退出；商家接口要求真实本地账号会话。没有账号时，客户首次 `GET /api/v2/session` 可建立匿名沙盒会话；匿名 Cookie 丢失不会自动找回空间。账号登录优先，旧空间接管须注册时明确选择。详见 [v0.7 身份说明](INTERNATIONAL_AUTH_V0.7.md)。 |
 | 托管 Worker | 托管认证入口注入的 `oai-authenticated-user-id` | Worker 使用该可信身份区分空间；客户端不得把自行填写此头当作登录。部署必须保留能够验证并覆盖身份头的认证入口。没有该身份时 API 返回 401。 |
 
 本地 Host 仅接受 `127.0.0.1`、`localhost`、`terminal.local`。API 拒绝 `Sec-Fetch-Site: cross-site`，也拒绝存在但与请求 URL origin 不同的 `Origin`；当前没有跨域调用配置。此同源检查不等于商业权限系统。
@@ -23,11 +23,11 @@ v0.4 提供按 owner 隔离的客户资料与收货地址、服务端工作空�
 
 ## 请求与响应约定
 
-- 所有 POST 必须带 `Idempotency-Key`，匹配 `^[A-Za-z0-9_.:-]{8,128}$`。GET 不要求该头。
+- `/api/v2` 的所有 POST 必须带 `Idempotency-Key`，匹配 `^[A-Za-z0-9_.:-]{8,128}$`。GET 不要求该头。
 - 同一 owner 内，键绑定命令类型及规范化 payload。相同请求重放返回缓存结果与 `replayed: true`；同键不同请求返回 `409 IDEMPOTENCY_CONFLICT`。不要给失败重试换新键。
 - 重放响应中的业务结果来自首次成功执行，`workspace` 是当前空间快照；两者时间可能不同。模型和订单 POST 重放仍返回 HTTP 201。
 - POST 成功响应：`mode: SERVER_SANDBOX`、命令结果、`workspace`、`replayed`、`requestId`、`physicalCommandsSent: 0`、`moneyTransferred: 0`。结果内部的报价 `mode` 仍为 `DEMO_ONLY`。
-- GET session/workspace/health 返回各自数据结构，不保证有 `requestId`。公共 `workspace` 仅含 `customerProfile`、`revision`、`orders`、`devices`、`models`，不返回报价集合、幂等台账或文件存储键。
+- GET session/workspace/health 返回各自数据结构，不保证有 `requestId`。公共 `workspace` 包含客户资料、订单、模型及公开的需求状态等；不返回商家私有成本、幂等台账或文件存储键。需求与方案的独立查询接口见下文。
 - JSON POST 使用 `Content-Type: application/json`，最大 **32,768 字节**，请求体必须为 JSON 对象。模型上传使用原始文件字节，见下文。
 - 金额以 `*Cents` 的人民币分为计算依据；`total` 和费用展示字段是元。时间戳 `issuedAt/expiresAt/createdAt` 等为 Unix 毫秒；`created`、事件 `time` 是 ISO 8601。
 - 未声明的 JSON 字段目前不会统一拒绝，但不应依赖它们产生业务效果。服务端不信任客户端提供的金额、几何、付款状态或设备状态。
@@ -36,7 +36,7 @@ v0.4 提供按 owner 隔离的客户资料与收货地址、服务端工作空�
 
 | 方法与路径 | 输入 | 成功结果 |
 | --- | --- | --- |
-| `GET /health` | 无 | HTTP 200：`ok`、`version: 0.4.0`、`mode`、`persistence`、`realPayments: false`、`realDevices: false` |
+| `GET /health` | 无 | HTTP 200：`ok`、`version: 0.8.0`、`mode`、`persistence`、`realPayments: false`、`realDevices: false` |
 | `GET /api/v2/session` | 部署身份/本地 Cookie | HTTP 200：`authenticated`、`user: {id,label}`、`persistence`、`capabilities`；本地首次可建立会话 |
 | `GET /api/v2/workspace` | 部署身份/本地 Cookie | HTTP 200：公共空间快照 |
 | `GET /api/v2/customer/profile` | 部署身份/本地 Cookie | HTTP 200：`profile`；未建资料为 `null` |
@@ -48,6 +48,31 @@ v0.4 提供按 owner 隔离的客户资料与收货地址、服务端工作空�
 | `POST /api/v2/actions` | `action`、动作参数、`demoAcknowledged: true`、幂等键 | HTTP 200：`order` 和/或 `device`，或 `reset: true`，以及空间快照 |
 
 没有独立的 v2 `GET /orders/{id}`、支付 webhook、物流 webhook 或真实生产指令端点；订单查询从工作空间快照读取。另有商家资料和只读发现网关接口，见 [商家指南](MERCHANT_GUIDE.md)，不代表正式商家认证或真实打印能力。
+
+## v0.8 模型需求与方案确认
+
+新增工作流在同一个所有者沙盒内运行。`GET /api/v2/capabilities` 返回可供客户选择的服务配置，`GET /api/v2/inquiries` 返回当前所有者的需求与公开方案。商家接口受本地账号认证约束，商家成本证据只由商家查询接口返回。配置是商家自报，不代表设备经过认证或支持真实自动生产。
+
+| 方法与路径 | 输入 | 用途 |
+| --- | --- | --- |
+| `GET /api/v2/capabilities` | 同源会话 | 查询当前工作空间的服务配置 |
+| `GET /api/v2/inquiries` | 同源会话 | 查询客户需求与方案历史 |
+| `POST /api/v2/inquiries` | `modelId`、`unit`、`qty`、`material`、`capabilityId`、`requirements`、`dimensionsConfirmed: true`、`demoAcknowledged: true` | 保存需求；严格满足标准条件时生成模拟预估方案，其他需求等待商家 |
+| `GET /api/v2/merchant/capabilities` | 商家身份 | 读取商家服务配置 |
+| `POST /api/v2/merchant/capabilities` | `capability`、`expectedRevision`、`demoAcknowledged: true` | 带版本检查保存服务配置 |
+| `GET /api/v2/merchant/inquiries` | 商家身份 | 读取需求与方案，并单独返回私有 `proposalEconomics` |
+| `POST /api/v2/merchant/proposals` | `inquiryId`、`expectedInquiryRevision` 与制造方案 | 为尚未确认的需求提交新版方案 |
+| `POST /api/v2/inquiries/accept` | `inquiryId`、`proposalRevision`、`customerAccepted: true`、`demoAcknowledged: true` | 确认当前版本，生成带快照的模拟订单 |
+
+以上 POST 均要求独立幂等键。`material` 可为 `AUTO`（让商家推荐）；`requirements` 的可选项为 `purpose`、`color`、`toleranceMm`、`note`、`requestedDeliveryDate`。公差以毫米表示，与 `quality` 对应的层高选项分开。默认 FDM 模板支持 PLA/PETG；自定义需求、商家推荐材料、非自动工艺或不充分模型证据进入商家确认，不靠客户端选项越过审核。
+
+服务配置包含名称、`farmId`（当前 f1/f2/f3 演示产线）、`enabled`、`quoteMode`（`AUTO_ESTIMATE` 或 `MERCHANT_REVIEW`）、`process`、`materials`、`qualities`、`maxDimensions` 和 `deviceIds` 等字段。设备 ID 只引用已登记设备，不授予文件上传或开打权限。标准自动预估只适用于FDM PLA/PETG 演示模板与简单条件，商家不能通过自报参数取得实机认证。
+
+商家方案输入为 `material`、`quality`、`manufacturingCents`、`shippingCents`、`estimatedCostCents`、`productionHours`、`dispatchDays: [min,max]`、`transitDays: [min,max]`、`note`、`demoAcknowledged: true`。成本与预计工时用于服务端计算利润底线；最终制造价不得低于按当前计价配置得到的底线。平台费单列，客户不接收私有成本证据。金额仍统一以人民币分记账，海外运费与交期是商家手动方案，不是承运商实时结果。
+
+方案有效期为 15 分钟。确认时校验精确方案版本，以及模型、地址、服务配置和计价配置版本；旧方案、已过期方案或发生变化的方案必须重新提交/确认。已确认订单保留当时模型、方案、价格与地址，不允许商家直接修改已付款快照或追加收费。
+
+严格标准方案可进入原有模拟生产队列；商家手动方案确认后，仅冻结模拟款项并保存已批准计划（`approvedPlan: true`），生产状态仍为 `REVIEW_REQUIRED`，等待生产工艺验证。两条路线均不启动真实设备。更完整的操作说明见 [模型需求与方案确认](MODEL_WORKFLOW_V0.8.md)。
 
 ## 客户资料与收货地址
 

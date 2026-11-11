@@ -60,6 +60,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const args=process.argv.slice(2),option=name=>args.includes(name)?args[args.indexOf(name)+1]:undefined;
   const port=Number(option('--port')||process.env.PORT||3000),host=option('--host')||'127.0.0.1';
   if(!Number.isInteger(port)||port<1||port>65535||!['127.0.0.1','0.0.0.0'].includes(host))throw new Error('Invalid local host/port');
-  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.7 沙盒 http://127.0.0.1:${port} · SQLite 数据持久化 · 不执行真实打印或付款`));
+  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.8 沙盒 http://127.0.0.1:${port} · SQLite 数据持久化 · 模型询价与方案确认 · 不执行真实打印或付款`));
   const stop=()=>server.close(()=>{store.close();process.exit(0);});process.on('SIGTERM',stop);process.on('SIGINT',stop);
 }

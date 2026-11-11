@@ -87,7 +87,7 @@ test('delivery launcher rejects a busy port without opening or stopping the exis
     const [code] = await child.exited;
     assert.equal(code, 1);
     assert.match(child.output(), /already in use/);
-    assert.doesNotMatch(child.output(), /Gongzao v0.7 - local sandbox/);
+    assert.doesNotMatch(child.output(), /Gongzao v\d+\.\d+ - local sandbox/);
     assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'existing service');
   } finally {
     if (child?.process.exitCode === null) { child.process.kill('SIGTERM'); await child.exited; }

@@ -16,19 +16,19 @@ async function fixture(t) {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const source = path.join(root, 'new package 新版'), target = path.join(root, 'old package 旧版');
   const old = {
-    'package.json': JSON.stringify({ name: projectName, version: '0.6.0' }),
+    'package.json': JSON.stringify({ name: projectName, version: '0.7.0' }),
     'services/platform/local.mjs': 'export const version = "old";\n',
     'dist/index.html': '<html>old</html>',
   };
   const fresh = { ...old,
-    'package.json': JSON.stringify({ name: projectName, version: '0.7.0' }),
+    'package.json': JSON.stringify({ name: projectName, version: '0.8.0' }),
     'services/platform/local.mjs': 'export const version = "new";\n',
     'dist/index.html': '<html>new</html>',
     'dist/new-ui.js': 'export const feature = true;\n',
   };
   for (const [name, content] of Object.entries(old)) await write(target, name, content);
   for (const [name, content] of Object.entries(fresh)) await write(source, name, content);
-  const manifest = { schema: 1, project: projectName, version: '0.7.0', files: Object.entries(fresh).map(([name, content]) => ({
+  const manifest = { schema: 1, project: projectName, version: '0.8.0', files: Object.entries(fresh).map(([name, content]) => ({
     path: name, bytes: Buffer.byteLength(content), sha256: createHash('sha256').update(content).digest('hex'),
   })) };
   const saveManifest = () => write(source, 'UPDATE-MANIFEST.json', JSON.stringify(manifest));
@@ -39,11 +39,11 @@ async function fixture(t) {
 test('update backs up overwritten code and preserves data, private settings and user additions', async t => {
   const f = await fixture(t);
   const protectedFiles = ['data/platform.sqlite', 'data/platform.sqlite-wal', '.env', 'gateway.config.json',
-    'farm.private.json', 'node_modules/user-package/index.js', '.git/config', 'my-extra-file.txt'];
+    'farm.private.json', 'auth.private.json', 'node_modules/user-package/index.js', '.git/config', 'my-extra-file.txt'];
   for (const name of protectedFiles) { await write(f.target, name, 'old private content:' + name); await write(f.source, name, 'never copy:' + name); }
   const result = await applyUpdate(f);
   assert.equal(result.updatedFiles, 4);
-  assert.equal(result.fromVersion, '0.6.0'); assert.equal(result.toVersion, '0.7.0');
+  assert.equal(result.fromVersion, '0.7.0'); assert.equal(result.toVersion, '0.8.0');
   for (const [name, content] of Object.entries(f.fresh)) assert.equal(await fs.readFile(path.join(f.target, name), 'utf8'), content);
   for (const [name, content] of Object.entries(f.old)) assert.equal(await fs.readFile(path.join(result.backup, 'code', name), 'utf8'), content);
   for (const name of protectedFiles) assert.equal(await fs.readFile(path.join(f.target, name), 'utf8'), 'old private content:' + name);
@@ -87,7 +87,7 @@ test('same, nested, root, mismatched and newer target projects are rejected', as
   await fs.mkdir(path.join(f.source, 'nested'));
   await assert.rejects(prepareUpdate({ source: f.source, target: path.join(f.source, 'nested') }), /separate folder/);
   await assert.rejects(prepareUpdate({ source: f.source, target: path.parse(f.root).root }), /disk root/);
-  await write(f.target, 'package.json', JSON.stringify({ name: 'another-project', version: '0.6.0' }));
+  await write(f.target, 'package.json', JSON.stringify({ name: 'another-project', version: '0.7.0' }));
   await assert.rejects(prepareUpdate(f), /Not a supported/);
   await write(f.target, 'package.json', JSON.stringify({ name: projectName, version: '9.0.0' }));
   await assert.rejects(prepareUpdate(f), /downgrade/);

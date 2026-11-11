@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [string]$TargetPath = 'D:\Gongzao-Shared-3D-v0.6-Download\Gongzao-Shared-3D-v0.6-Download\Gongzao-Shared-3D-v0.6'
+    [string]$TargetPath = 'D:\Gongzao-Shared-3D-v0.6-Download\Gongzao-Shared-3D-v0.7'
 )
 
 Set-StrictMode -Version Latest

@@ -4,7 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const projectName = 'gongzao-shared-fabrication';
-export const defaultTarget = 'D:\\Gongzao-Shared-3D-v0.6-Download\\Gongzao-Shared-3D-v0.6-Download\\Gongzao-Shared-3D-v0.6';
+export const defaultTarget = 'D:\\Gongzao-Shared-3D-v0.6-Download\\Gongzao-Shared-3D-v0.7';
 const defaultSource = fileURLToPath(new URL('../', import.meta.url));
 const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');

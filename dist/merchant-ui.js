@@ -1,6 +1,6 @@
 import { get, prepareMutation } from './api-client.js';
 
-export function createMerchantUI({ icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session, auth }) {
+export function createMerchantUI({ workflow, icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session, auth }) {
   const state = { profile:null, loaded:false, loading:false, busy:false, error:null, view:'overview', devices:[], gateways:[], counts:{total:0,real:0,online:0,offline:0,demo:0}, scan:null, selected:new Set(), lastRefreshed:null, pollTimer:null, freshnessTimer:null, clockOffset:0, retry:null, pricing:null, pricingLoading:false, pricingFarm:'f1', pricingDrafts:{}, pricingDraftRevisions:{} };
   let pairing = null;
   const esc=escape, I=icon;
@@ -24,7 +24,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   const canImport=c=>state.scan?.status==='complete'&&state.scan.importable!==false&&new Date(state.scan.expiresAt).getTime()>Date.now()+state.clockOffset&&!c.registered&&c.connectionState==='online'&&['moonraker','octoprint'].includes(c.protocol);
   const onlineGateways=()=>state.gateways.map(displayGateway).filter(g=>g.status==='online'&&!g.revokedAt);
   function notice(){return state.error?'<div class="request-notice error" role="alert">'+I('info')+'<span>'+esc(state.error.message)+'</span>'+button('retry','重试')+'</div>':'';}
-  function go(view){state.view=['overview','devices','pricing','orders'].includes(view)?view:'overview';const hash=state.view==='overview'?'':'#'+state.view;history.replaceState(null,'','/merchant'+hash);render();window.scrollTo({top:0,behavior:'instant'});if(state.view==='pricing')loadPricing();}
+  function go(view){state.view=['overview','devices','capabilities','inquiries','pricing','orders'].includes(view)?view:'overview';const hash=state.view==='overview'?'':'#'+state.view;history.replaceState(null,'','/merchant'+hash);render();window.scrollTo({top:0,behavior:'instant'});if(state.view==='pricing')loadPricing();if(['capabilities','inquiries'].includes(state.view))workflow?.load(true);}
   function applyDevices(result){state.devices=result.devices||[];state.counts=result.counts||state.counts;if(result.gateways)state.gateways=result.gateways;state.lastRefreshed=Date.now();state.clockOffset=Number.isFinite(result.serverNow)?result.serverNow-Date.now():0;scheduleFreshness();}
   async function load(show=true){
     if(state.loading)return;state.loading=true;if(show)render();
@@ -34,7 +34,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
       const session=await get('/merchant/session');state.profile=session.profile;state.error=null;
       if(state.profile){
         const [devices,gateways,scan]=await Promise.all([get('/merchant/devices'),get('/merchant/gateways'),get('/merchant/scan-result')]);
-        applyDevices(devices);state.gateways=gateways.gateways||[];state.scan=scan.scan||null;if(state.view==='pricing')await loadPricing(false);
+        applyDevices(devices);state.gateways=gateways.gateways||[];state.scan=scan.scan||null;if(state.view==='pricing')await loadPricing(false);if(['capabilities','inquiries'].includes(state.view))await workflow?.load(true,{quiet:true});
       }
       state.loaded=true;
     }catch(error){state.error=error;}
@@ -66,7 +66,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   }
   function overview(){
     const connected=onlineGateways();
-    return heading('BUSINESS WORKSPACE','专注制造。','欢迎回来，'+esc(state.profile.name)+'。你的设备与工作，都在这里。',button('pricing','批量计价')+button('devices','管理设备 '+I('arrow'),true))+summary()+
+    return heading('BUSINESS WORKSPACE','专注制造。','欢迎回来，'+esc(state.profile.name)+'。你的设备与工作，都在这里。',button('capabilities','配置制造能力')+button('inquiries','查看模型需求 '+I('arrow'),true))+summary()+
       '<div class="merchant-overview-grid"><section class="card overview-feature"><div class="overview-feature-icon">'+I('printer')+'</div><div class="eyebrow">YOUR MACHINES</div><h2>设备接入，简单一点。</h2><p>已有设备联网，却还没添加到平台？<br/>连接本地网关，一次检测，批量添加。</p><div class="overview-feature-actions">'+button('discover','检测并添加设备 '+I('plus'),true)+button('refresh','查询已接入设备')+'</div></section><section class="card gateway-overview"><div class="section-heading"><h2>本地网关</h2><span class="badge">'+connected.length+' 个在线</span></div><div class="gateway-graphic">'+I('network')+'</div><h3>'+(connected.length?'已连接到你的制造空间':'连接你的第一台网关')+'</h3><p>在商家的电脑上运行网关，<br/>平台就能读取已授权设备的状态。</p>'+button('pair','连接本地网关 '+I('arrow'))+'</section></div>'+
       '<div class="merchant-bottom-note">'+I('shield')+'<span>已开放只读协议识别；具体机型、打印状态与生产能力仍需验证。</span><button class="text-link" data-merchant-action="demo">先体验添加流程 '+I('arrow')+'</button></div>';
   }
@@ -167,9 +167,9 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   }
   function renderContent(){
     if((auth&&!auth.authenticated())||!state.profile||location.pathname.replace(/\/$/,'')==='/merchant/login')return loginPage();
-    return notice()+(state.view==='devices'?registry():state.view==='pricing'?pricingPage():state.view==='orders'?'<div class="merchant-legacy-label">订单履约沙盒 · 以下生产、物流与结算为模拟操作，与真实设备清单分开。</div>'+legacyOrders():overview());
+    return notice()+(state.view==='devices'?registry():state.view==='capabilities'?workflow.capabilitiesPage():state.view==='inquiries'?workflow.merchantInquiries():state.view==='pricing'?pricingPage():state.view==='orders'?'<div class="merchant-legacy-label">订单履约沙盒 · 以下生产、物流与结算为模拟操作，与真实设备清单分开。</div>'+legacyOrders():overview());
   }
-  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['pricing','计价'],['orders','订单']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'<button data-auth-action="logout">退出</button></nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
+  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['capabilities','制造配置'],['inquiries','模型需求'],['pricing','计价'],['orders','订单']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'<button data-auth-action="logout">退出</button></nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
   function discover(){
     const gateways=onlineGateways();
     if(!gateways.length){modal('连接后，一键发现','<div class="connect-explainer">'+I('network')+'<h3>需要一个在线的本地网关</h3><p>网页无法直接查找你局域网里的打印机。<br/>在连接设备的电脑上运行共造网关，即可完成检测。</p></div><div class="setup-steps"><div><b>1</b><span>创建并下载网关配置</span></div><div><b>2</b><span>在商家电脑上运行网关</span></div><div><b>3</b><span>回到这里检测并添加设备</span></div></div>','<button class="btn" data-action="close">稍后</button>'+button('pair','连接本地网关',true));return;}
@@ -197,6 +197,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     event.preventDefault();const action=target.dataset.merchantAction;if(state.busy)return;
     if(action==='view')return go(target.dataset.view);
     if(action==='devices')return go('devices');
+    if(action==='capabilities'||action==='inquiries')return go(action);
     if(action==='pricing')return go('pricing');
     if(action==='refresh-pricing')return loadPricing(true,true);
     if(action==='save-pricing')return savePricing();
@@ -238,6 +239,6 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&isRoute()){render();scheduleFreshness();}});
   window.addEventListener('pageshow',()=>scheduleFreshness());
   window.addEventListener('pagehide',()=>{pairing=null;clearTimeout(state.pollTimer);clearTimeout(state.freshnessTimer);});
-  state.view=['devices','pricing','orders'].includes(location.hash.slice(1))?location.hash.slice(1):'overview';
+  state.view=['devices','capabilities','inquiries','pricing','orders'].includes(location.hash.slice(1))?location.hash.slice(1):'overview';
   return { isRoute, load, renderContent, nav, state, discover, pairPrompt };
 }

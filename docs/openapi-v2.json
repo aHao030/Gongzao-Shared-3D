@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.7 国际地址、认证与履约沙盒 API",
-    "version": "0.7.0",
-    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md. v0.7: Local merchant APIs require a registered account cookie, while customer anonymous sandbox sessions remain available. Separate /api/auth routes do not require Idempotency-Key. Address required fields are country-dependent via /api/v2/markets. All payments stay disabled."
+    "title": "共造 v0.8 模型需求、商家方案与履约沙盒 API",
+    "version": "0.8.0",
+    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every /api/v2 POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md. v0.7: Local merchant APIs require a registered account cookie, while customer anonymous sandbox sessions remain available. Separate /api/auth routes do not require Idempotency-Key. Address required fields are country-dependent via /api/v2/markets. All payments stay disabled. v0.8 adds owner-scoped capability templates, model-first inquiries, versioned proposals and exact-revision customer acceptance. These are single-owner sandbox flows; a self-declared capability or approved manual plan is not authorization for real manufacturing. Private proposal cost evidence is restricted to merchant inquiry responses. All estimated price and time ranges remain unverified sandbox forecasts."
   },
   "servers": [
     {
@@ -13,6 +13,9 @@
     }
   ],
   "security": [
+    {
+      "AccountCookie": []
+    },
     {
       "SandboxCookie": []
     }
@@ -404,7 +407,12 @@
           "403": {
             "description": "Merchant profile required"
           }
-        }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
       },
       "post": {
         "summary": "Replace one demo farm pricing profile with optimistic revision check",
@@ -443,7 +451,12 @@
           "409": {
             "description": "Revision or idempotency conflict"
           }
-        }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
       }
     },
     "/api/v2/markets": {
@@ -685,6 +698,262 @@
           }
         }
       }
+    },
+    "/api/v2/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "summary": "Read owner-scoped service configurations",
+        "description": "Public projection; enabled state and compatibility are enforced when submitting inquiries.",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      }
+    },
+    "/api/v2/merchant/capabilities": {
+      "get": {
+        "operationId": "getMerchantCapabilities",
+        "summary": "Read merchant service configurations",
+        "description": "Local deployment requires authenticated merchant account; hosted deployment uses platform identity.",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "saveCapability",
+        "summary": "Save versioned merchant configuration",
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityMutationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/inquiries": {
+      "get": {
+        "operationId": "getInquiries",
+        "summary": "Read customer inquiries and public proposal history",
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InquiriesResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createInquiry",
+        "summary": "Submit a model-first manufacturing inquiry",
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InquiryMutationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InquiryRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/merchant/inquiries": {
+      "get": {
+        "operationId": "getMerchantInquiries",
+        "summary": "Read inquiries and private proposal cost evidence",
+        "description": "Merchant identity required. Do not expose proposalEconomics to customers or another owner.",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MerchantInquiriesResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/merchant/proposals": {
+      "post": {
+        "operationId": "submitProposal",
+        "summary": "Create a new merchant proposal revision",
+        "description": "Previous versions become unacceptably stale; accepted inquiries cannot be revised. Forecasts are manual estimates, not verified slicer/carrier results.",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalMutationResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AccountCookie": []
+          }
+        ]
+      }
+    },
+    "/api/v2/inquiries/accept": {
+      "post": {
+        "operationId": "acceptProposal",
+        "summary": "Confirm the exact current proposal and create a simulated order",
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "Sandbox result. No real funds or physical commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InquiryAcceptanceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/ApiError"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, maximum 32768 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InquiryAcceptanceRequest"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -765,7 +1034,7 @@
             "type": "boolean"
           },
           "version": {
-            "const": "0.6.0",
+            "const": "0.8.0",
             "type": "string"
           },
           "mode": {
@@ -1912,6 +2181,12 @@
                 "type": "null"
               }
             ]
+          },
+          "inquiries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Inquiry"
+            }
           }
         },
         "required": [
@@ -1921,7 +2196,7 @@
           "models",
           "customerProfile"
         ],
-        "description": "Owner-private public projection. Quotes, idempotency ledger and blob keys are omitted. Includes owner-private customerProfile and order delivery snapshots; these must not be exposed to another owner."
+        "description": "Owner-private public projection. Quotes, idempotency ledger and blob keys are omitted. Includes owner-private customerProfile and order delivery snapshots; these must not be exposed to another owner. v0.8 may include public inquiries, excluding proposal economics."
       },
       "WorkspaceResponse": {
         "type": "object",
@@ -3162,6 +3437,793 @@
             "const": true
           }
         }
+      },
+      "ForecastDays": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        },
+        "description": "[minimum, maximum] calendar-day forecast, not a reserved capacity or carrier SLA."
+      },
+      "InquiryRequirements": {
+        "type": "object",
+        "properties": {
+          "purpose": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "toleranceMm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "exclusiveMinimum": 0,
+            "description": "Requested dimensional tolerance in millimetres; separate from layer height.",
+            "maximum": 100
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "requestedDeliveryDate": {
+            "type": "string",
+            "description": "Empty or YYYY-MM-DD within the next two years, not before current UTC day. Target only; does not automatically promise delivery."
+          }
+        },
+        "required": [],
+        "description": "Optional customer needs; custom requirements trigger merchant review."
+      },
+      "CapabilityInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "quoteMode": {
+            "type": "string",
+            "enum": [
+              "AUTO_ESTIMATE",
+              "MERCHANT_REVIEW"
+            ]
+          },
+          "process": {
+            "type": "string",
+            "enum": [
+              "FDM",
+              "RESIN",
+              "METAL",
+              "CNC"
+            ]
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PLA",
+                "PETG",
+                "ABS",
+                "RESIN",
+                "ALUMINUM",
+                "CNC"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "qualities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "standard",
+                "fine"
+              ],
+              "description": "Layer-height option, not a dimensional tolerance promise."
+            },
+            "uniqueItems": true,
+            "minItems": 1,
+            "maxItems": 2
+          },
+          "maxDimensions": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 10000
+            }
+          },
+          "deviceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "farmId": {
+            "type": "string",
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ],
+            "description": "Underlying sandbox pricing/production line, not a real merchant identifier."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "name",
+          "farmId",
+          "process",
+          "materials",
+          "maxDimensions",
+          "qualities",
+          "enabled",
+          "quoteMode"
+        ],
+        "description": "Merchant-declared sandbox service configuration. Process/material combinations are validated; AUTO_ESTIMATE only supports FDM PLA/PETG and compatible simple requests. Referenced devices are inventory records only. This never enables real manufacturing or grants hardware verification."
+      },
+      "Capability": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "quoteMode": {
+            "type": "string",
+            "enum": [
+              "AUTO_ESTIMATE",
+              "MERCHANT_REVIEW"
+            ]
+          },
+          "process": {
+            "type": "string",
+            "enum": [
+              "FDM",
+              "RESIN",
+              "METAL",
+              "CNC"
+            ]
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PLA",
+                "PETG",
+                "ABS",
+                "RESIN",
+                "ALUMINUM",
+                "CNC"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "qualities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "standard",
+                "fine"
+              ],
+              "description": "Layer-height option, not a dimensional tolerance promise."
+            },
+            "uniqueItems": true,
+            "minItems": 1,
+            "maxItems": 2
+          },
+          "maxDimensions": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 10000
+            }
+          },
+          "deviceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          "farmId": {
+            "type": "string",
+            "enum": [
+              "f1",
+              "f2",
+              "f3"
+            ],
+            "description": "Underlying sandbox pricing/production line, not a real merchant identifier."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updatedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mode": {
+            "const": "DEMO_ONLY"
+          },
+          "hardwareVerified": {
+            "const": false
+          }
+        },
+        "required": [
+          "name",
+          "farmId",
+          "process",
+          "materials",
+          "maxDimensions",
+          "qualities",
+          "enabled",
+          "quoteMode",
+          "id",
+          "revision",
+          "mode",
+          "hardwareVerified"
+        ],
+        "description": "Merchant-declared sandbox service configuration. Process/material combinations are validated; AUTO_ESTIMATE only supports FDM PLA/PETG and compatible simple requests. Referenced devices are inventory records only. This never enables real manufacturing or grants hardware verification."
+      },
+      "CapabilityRequest": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/CapabilityInput"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "demoAcknowledged": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "capability",
+          "expectedRevision",
+          "demoAcknowledged"
+        ],
+        "description": "Optimistic concurrency protection; disabled or incompatible configurations cannot be used for new inquiries."
+      },
+      "InquiryRequest": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "capabilityId": {
+            "type": "string"
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/InquiryRequirements"
+          },
+          "dimensionsConfirmed": {
+            "type": "boolean",
+            "const": true
+          },
+          "demoAcknowledged": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "modelId",
+          "unit",
+          "qty",
+          "material",
+          "capabilityId",
+          "dimensionsConfirmed",
+          "demoAcknowledged"
+        ],
+        "description": "Saved shipping address is required. AUTO requests merchant material advice. Model metadata and amount fields are derived server-side, not trusted from the client."
+      },
+      "ProposalRequest": {
+        "type": "object",
+        "properties": {
+          "inquiryId": {
+            "type": "string"
+          },
+          "expectedInquiryRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ],
+            "description": "Layer-height option, not a dimensional tolerance promise."
+          },
+          "manufacturingCents": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "CNY minor units (fen)."
+          },
+          "shippingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "CNY minor units (fen)."
+          },
+          "estimatedCostCents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000,
+            "description": "Merchant-private cost declaration; server may raise the pricing baseline using its own estimate."
+          },
+          "productionHours": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 8760
+          },
+          "dispatchDays": {
+            "$ref": "#/components/schemas/ForecastDays"
+          },
+          "transitDays": {
+            "$ref": "#/components/schemas/ForecastDays"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "demoAcknowledged": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "inquiryId",
+          "expectedInquiryRevision",
+          "material",
+          "quality",
+          "manufacturingCents",
+          "shippingCents",
+          "estimatedCostCents",
+          "productionHours",
+          "dispatchDays",
+          "transitDays",
+          "demoAcknowledged",
+          "note"
+        ],
+        "description": "Merchant-only. Server validates compatibility, optimistic revision and minimum manufacturing price against costs, target margin, minimum order profit and minimum hourly profit. Does not modify an accepted order. Latest dispatch days must not be shorter than the declared productionHours."
+      },
+      "InquiryAcceptanceRequest": {
+        "type": "object",
+        "properties": {
+          "inquiryId": {
+            "type": "string"
+          },
+          "proposalRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "customerAccepted": {
+            "type": "boolean",
+            "const": true
+          },
+          "demoAcknowledged": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "inquiryId",
+          "proposalRevision",
+          "customerAccepted",
+          "demoAcknowledged"
+        ],
+        "description": "Accept only the current, unexpired proposal with unchanged model/address/capability/pricing snapshots. Creates a simulated frozen-payment order. Manual approved plans remain REVIEW_REQUIRED until production validation; no real money moves or printer starts."
+      },
+      "Proposal": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "material": {
+            "type": "string",
+            "enum": [
+              "PLA",
+              "PETG",
+              "ABS",
+              "RESIN",
+              "ALUMINUM",
+              "CNC"
+            ]
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "fine"
+            ],
+            "description": "Layer-height option, not a dimensional tolerance promise."
+          },
+          "manufacturingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "CNY minor units (fen)."
+          },
+          "shippingCents": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "CNY minor units (fen)."
+          },
+          "productionHours": {
+            "type": "number"
+          },
+          "dispatchDays": {
+            "$ref": "#/components/schemas/ForecastDays"
+          },
+          "transitDays": {
+            "$ref": "#/components/schemas/ForecastDays"
+          },
+          "note": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "SUPERSEDED",
+              "ACCEPTED"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "AUTO_ESTIMATE",
+              "MERCHANT_REVIEW"
+            ]
+          },
+          "platformFeeCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalCents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "arrivalDays": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 730
+            }
+          },
+          "currency": {
+            "const": "CNY"
+          },
+          "payable": {
+            "const": false
+          },
+          "shippingAddress": {
+            "$ref": "#/components/schemas/ShippingAddress"
+          }
+        },
+        "required": [],
+        "description": "Public approved terms/history; no private estimated costs or profitability evidence. Proposal expiry is 15 minutes; only latest revision is acceptable."
+      },
+      "Inquiry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "mm",
+              "inch"
+            ]
+          },
+          "qty": {
+            "type": "integer"
+          },
+          "material": {
+            "type": "string"
+          },
+          "capabilityId": {
+            "type": "string"
+          },
+          "requirements": {
+            "$ref": "#/components/schemas/InquiryRequirements"
+          },
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Proposal"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "AWAITING_MERCHANT",
+              "AWAITING_CUSTOMER",
+              "ORDERED"
+            ]
+          },
+          "currentProposalRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelSnapshot": {
+            "$ref": "#/components/schemas/Model"
+          },
+          "capabilitySnapshot": {
+            "$ref": "#/components/schemas/Capability"
+          }
+        },
+        "required": [],
+        "description": "Public projection of the owner-scoped inquiry and its proposal history. Customer cannot alter server-derived proposal amounts."
+      },
+      "CapabilitiesResponse": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Capability"
+            }
+          },
+          "mode": {
+            "const": "DEMO_ONLY"
+          },
+          "realProduction": {
+            "const": false
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "description": ""
+      },
+      "InquiriesResponse": {
+        "type": "object",
+        "properties": {
+          "inquiries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Inquiry"
+            }
+          },
+          "mode": {
+            "const": "DEMO_ONLY"
+          },
+          "realProduction": {
+            "const": false
+          },
+          "realPayments": {
+            "const": false
+          }
+        },
+        "required": [
+          "inquiries"
+        ],
+        "description": ""
+      },
+      "MerchantInquiriesResponse": {
+        "type": "object",
+        "properties": {
+          "inquiries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Inquiry"
+            }
+          },
+          "proposalEconomics": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Merchant-private cost/floor evidence. Never returned by public inquiries or workspace endpoints."
+          },
+          "mode": {
+            "const": "DEMO_ONLY"
+          },
+          "realProduction": {
+            "const": false
+          },
+          "realPayments": {
+            "const": false
+          }
+        },
+        "required": [
+          "inquiries"
+        ],
+        "description": ""
+      },
+      "CapabilityMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "capability": {
+                "$ref": "#/components/schemas/Capability"
+              }
+            },
+            "required": [
+              "capability"
+            ],
+            "description": ""
+          }
+        ]
+      },
+      "InquiryMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "inquiry": {
+                "$ref": "#/components/schemas/Inquiry"
+              }
+            },
+            "required": [
+              "inquiry"
+            ],
+            "description": ""
+          }
+        ]
+      },
+      "InquiryAcceptanceResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "inquiry": {
+                "$ref": "#/components/schemas/Inquiry"
+              },
+              "order": {
+                "$ref": "#/components/schemas/Order"
+              }
+            },
+            "required": [
+              "order"
+            ],
+            "description": ""
+          }
+        ]
+      },
+      "ProposalMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MutationResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "inquiry": {
+                "$ref": "#/components/schemas/Inquiry"
+              },
+              "proposal": {
+                "$ref": "#/components/schemas/Proposal"
+              }
+            },
+            "required": [
+              "inquiry",
+              "proposal"
+            ]
+          }
+        ]
       }
     }
   }

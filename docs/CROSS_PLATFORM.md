@@ -1,12 +1,18 @@
 # 跨平台交付与验证记录
 
-跨端工程迭代：API v2 · 资料核验日期：2026-11-08
+跨端工程迭代：v0.8 / API v2 · 文档更新：2026-11-09
 
 ## 本轮工程选择
 
 Web 使用仓库根目录 `dist/` 内的 HTML / CSS / JavaScript 作为 Web 演示，不依赖前端编译工具链。手机端提供 Capacitor 8 包装配置，桌面端提供 Tauri 2 源码，微信端提供原生 WXML / WXSS / JavaScript 三页演示。
 
 当前没有使用 React、Taro 或 uni-app。项目已增加统一 API v2 沙盒契约与共享客户端，各端身份接入尚未全部完成：微信默认使用独立本机演示；Capacitor/Tauri 仍是包装源码。托管服务当前使用 Sites 身份，不能推定手机、小程序或桌面端可直接共用浏览器登录。网页与服务端的实现/验证以主项目记录为准；设备、支付和承运商仍是演示边界。
+
+## v0.8 功能覆盖
+
+模型需求、商家能力配置、方案修订和客户确认首先在 Web 与服务端实现。原生包装可准备相同网页资源，但这不表示完成了文件选择、登录或真实设备验证。微信小程序仍保留已有独立页面；不能据此宣称新商家流程已在微信真机交付。
+
+核心规则由同一服务端校验；各端接入时须沿用方案版本、有效期、地址/模型快照和幂等键，不能在客户端自行确认价格或制造权限。真实跨账号商家路由、支付和设备执行仍待接入。
 
 ## 目标与实际交付
 
@@ -32,9 +38,9 @@ Web 使用仓库根目录 `dist/` 内的 HTML / CSS / JavaScript 作为 Web 演�
 
 ## 统一客户端与鉴权边界
 
-`apps/shared/api-client.js` 提供 `/api/v2/session`、`workspace`、`quotes`、`orders`、原始模型上传与客户 `accept/dispute/cancel` 的可注入客户端。`transport` 和 `getAccessToken` 由平台提供；所有 POST 均携带 8–128 位 `Idempotency-Key`。微信副本由 `apps/tools/sync-client.mjs` 同步并检查一致性。
+`apps/shared/api-client.js` 提供 `/api/v2/session`、`workspace`、`quotes`、`orders`、原始模型上传与客户 `accept/dispute/cancel` 的可注入客户端。v0.8 补充服务配置、需求、商家方案和客户确认方法：`getCapabilities`、`getMerchantCapabilities`、`saveCapability`、`getInquiries`、`getMerchantInquiries`、`createInquiry`、`submitProposal`、`acceptProposal`。`transport` 和 `getAccessToken` 由平台提供；所有 POST 均携带 8–128 位 `Idempotency-Key`。微信副本由 `apps/tools/sync-client.mjs` 同步并检查一致性。
 
-这不是已完成的原生登录。当前后端只接受 Sites 身份，微信 `AUTH_ADAPTER_READY` 默认 false、`API_BASE` 为空、token provider 返回 null。必须先实现服务端支持的身份交换与授权，才允许启用。不能把 Bearer 头当成 Sites 身份注入，不能复制 ChatGPT Cookie，也不提供所谓原生一键登录。
+这不是已完成的原生登录。托管后端仍使用 Sites 身份，本地后端另外支持浏览器账号 Cookie；这些都不等于原生登录已接通。微信 `AUTH_ADAPTER_READY` 默认 false、`API_BASE` 为空、token provider 返回 null。必须先实现服务端支持的身份交换与授权，才允许启用。不能把 Bearer 头当成 Sites 身份注入，不能复制 ChatGPT Cookie，也不提供所谓原生一键登录。
 
 微信选择服务端模式会先校验 HTTPS 配置与 `getSession()`；未配置/未认证时明确阻止。网络失败保留错误，不退回本机伪报价或假成功。远端订单页只读；本机演示仍可手动推进。Capacitor/Tauri 未接通后端时只展示离线页面壳/已有只读内容，不承诺服务端下单或实时更新。
 

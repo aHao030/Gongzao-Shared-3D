@@ -106,7 +106,7 @@ export function estimateBatchPrice({ profile, batch, singleWeightGrams, quantity
 export function settlementBreakdown(order) {
   if (order.settlementBreakdown) {
     const b = order.settlementBreakdown;
-    ensure(['V0_6_QUOTE', 'LEGACY_DERIVED'].includes(b.source) && [b.manufacturingCents, b.platformFeeCents, b.shippingCents, b.merchantReceivableCents, b.customerTotalCents].every(safeMoney) && b.manufacturingCents + b.shippingCents === b.merchantReceivableCents && b.merchantReceivableCents + b.platformFeeCents === b.customerTotalCents && b.customerTotalCents === order.totalCents, 409, 'INVALID_SETTLEMENT_BREAKDOWN', '订单分账快照无法校验，请核验后处理');
+    ensure(['V0_6_QUOTE', 'V0_8_PROPOSAL', 'LEGACY_DERIVED'].includes(b.source) && [b.manufacturingCents, b.platformFeeCents, b.shippingCents, b.merchantReceivableCents, b.customerTotalCents].every(safeMoney) && b.manufacturingCents + b.shippingCents === b.merchantReceivableCents && b.merchantReceivableCents + b.platformFeeCents === b.customerTotalCents && b.customerTotalCents === order.totalCents, 409, 'INVALID_SETTLEMENT_BREAKDOWN', '订单分账快照无法校验，请核验后处理');
     return copy(b);
   }
   if (order.settlementState === 'SIMULATED_SETTLED') return null;

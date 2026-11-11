@@ -1,3 +1,4 @@
+import { createWorkflowUI } from './workflow-ui.js';
 import { createMerchantUI } from './merchant-ui.js';
 import { createAuthUI } from './auth-ui.js';
 import { createInternationalUI } from './international-ui.js';
@@ -56,7 +57,7 @@ const materials={
 const destinations={east:'中国大陆 · 华东',south:'中国大陆 · 华南',north:'中国大陆 · 华北',other:'其他地区 · 询价确认'};
 let legacyCount=0;
 try{legacyCount=JSON.parse(localStorage.getItem('coforge.demo.v1')||'{}').orders?.length||0;}catch{}
-const state={page:'home',material:'PLA',quality:'standard',qty:1,quantityDraft:null,unit:'mm',destination:null,customerProfile:null,customerProfileLoaded:false,sort:'recommended',orders:[],devices:[],models:[],quotes:[],networkFilter:'all',catalogFilter:'all',search:'',menuOpen:false,model:null,connection:'loading',session:null,busy:false,busyLabel:'',error:null,quoteLoading:false,quoteError:null,legacyCount,revision:0};
+const state={page:'home',inquiryMode:true,material:'PLA',quality:'standard',qty:1,quantityDraft:null,unit:'mm',destination:null,customerProfile:null,customerProfileLoaded:false,sort:'recommended',orders:[],devices:[],models:[],quotes:[],networkFilter:'all',catalogFilter:'all',search:'',menuOpen:false,model:null,connection:'loading',session:null,busy:false,busyLabel:'',error:null,quoteLoading:false,quoteError:null,legacyCount,revision:0};
 const sampleModel={id:'sample-bracket',name:'桌面设备固定支架.stl',size:284672,dimensions:[72,48,58],volume:22.4,triangles:[],isSample:true,review:false,faceCount:3248};
 state.model={...sampleModel};
 let mesh=[], yaw=-.64,pitch=.37,zoom=1,animation=0,toastTimer, focusBeforeModal=null;
@@ -96,18 +97,18 @@ function requestCostEstimate(){
 function customerInput(id,label,value,{autocomplete='',max=120,required=true,type='text',placeholder=''}={}){
  return '<div class="field"><label class="field-label" for="'+id+'">'+label+'</label><input class="input" id="'+id+'" name="'+id+'" type="'+type+'" value="'+esc(value)+'" maxlength="'+max+'" '+(required?'required':'')+' '+(autocomplete?'autocomplete="'+autocomplete+'"':'')+' placeholder="'+esc(placeholder)+'"/></div>';
 }
-async function openCustomerProfile({required=false,onboarding=false}={}){
+async function openCustomerProfile({required=false,onboarding=false,onSaved=null}={}){
  if(customerSaving||state.busy)return;
  if(state.connection==='loading'||!state.customerProfileLoaded){toast(state.connection==='offline'?'请重新连接服务端后打开账号资料。':'账号资料正在加载，请稍候。');return;}
  if(state.connection!=='online'){toast('请重新连接服务端后打开账号资料。');return;}
  try{await international.load();}catch(error){toast(error.message||'地区配置加载失败，请重试。');return;}
  const profile=state.customerProfile||{},address=profile.shippingAddress||{};
  const title=required?'填写收货地址':onboarding?'完善账号资料':'账号资料';
- const description=required?'测算配送费用与交付时间前，请补充收货地址。保存后会继续本次费用测算。':onboarding?'欢迎来到共造。填写资料与收货地址，后续测算将自动使用。也可以稍后再填。':'收货资料仅在账号中显示。选择国家 / 地区后，地址格式与支付方案会自动调整。';
+ const description=required?'测算配送费用与交付时间前，请补充收货地址。保存后会继续本次需求或费用测算。':onboarding?'欢迎来到共造。填写资料与收货地址，后续测算将自动使用。也可以稍后再填。':'收货资料仅在账号中显示。选择国家 / 地区后，地址格式与支付方案会自动调整。';
  const body='<p class="customer-form-intro">'+description+'</p><form id="customer-profile-form" class="customer-profile-form">'+customerInput('customer-display-name','称呼（选填）',profile.displayName||'',{autocomplete:'nickname',max:80,required:false,placeholder:'如何称呼你'})+'<div class="customer-form-heading"><h3>收货资料</h3><span>仅用于配送与费用测算</span></div><div id="customer-address-fields">'+international.fieldsHTML(address)+'</div><p class="customer-privacy-note">首页不会展示收货地址。海外及未覆盖地区进入工程询价，交期、运费与税费需确认。</p><div id="customer-form-error" class="error-text" role="alert"></div></form>';
  const skip=!required&&!address.recipient?'<button class="btn" data-action="customer-skip">稍后填写</button>':'<button class="btn" data-action="close">取消</button>';
- modal(title,body,skip+'<button class="btn primary" data-action="customer-save">'+(required?'保存并测算费用':'保存资料')+I('arrow')+'</button>',true);
- customerModal={required,onboarding};customerSaveTask=null;$('.modal')?.classList.add('customer-profile-modal');
+ modal(title,body,skip+'<button class="btn primary" data-action="customer-save">'+(required?'保存并继续':'保存资料')+I('arrow')+'</button>',true);
+ customerModal={required,onboarding,onSaved};customerSaveTask=null;$('.modal')?.classList.add('customer-profile-modal');
 }
 async function saveCustomerProfile(skip=false){
  if(customerSaving||!customerModal||!$('#customer-profile-form'))return;
@@ -134,7 +135,8 @@ async function saveCustomerProfile(skip=false){
   if(previousRevision!==state.customerProfile?.addressRevision)clearQuotes();
   customerSaving=false;state.busy=false;closeModal();render();
   toast(skip?'可在账号资料中补充收货地址。':'账号资料已保存。');
-  if(hasShippingAddress()&&(context.required||['home','create'].includes(state.page)))refreshQuotes();
+  if(hasShippingAddress()&&context.onSaved)context.onSaved();
+  else if(hasShippingAddress()&&(context.required||['home','create'].includes(state.page)))refreshQuotes();
  }catch(error){
   state.busy=false;customerSaving=false;
   if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';
@@ -150,7 +152,8 @@ async function connectWorkspace(){
   await auth.load();
   state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();
   if(merchant.isRoute())await merchant.load(false);
-  else if(!auth.isRoute()){await refreshQuotes();if(!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}
+  else await workflow.load(false,{quiet:true});
+  if(!merchant.isRoute()&&!auth.isRoute()){await refreshQuotes();if(!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}
  }
  catch(error){state.connection='offline';state.error=error;state.quotes=[];render();}
 }
@@ -163,12 +166,13 @@ function editQuantity(value){
  // Do not replace the focused input while a multi-digit number is being typed.
  const result=$('.quote-section .quotes, .quote-section .quote-placeholder');
  if(result)result.outerHTML=validQuantity(value)?quotePlaceholder():'<div class="card quote-placeholder" role="status"><div><strong>请填写制作数量</strong><p>数量须为 1–50 的整数。</p></div></div>';
- if(validQuantity(value)&&state.connection==='online')quoteTimer=setTimeout(()=>refreshQuotes(),350);
+ if(!state.inquiryMode&&validQuantity(value)&&state.connection==='online')quoteTimer=setTimeout(()=>refreshQuotes(),350);
 }
 function commitQuantity(value){state.quantityDraft=null;state.qty=Math.min(50,Math.max(1,parseInt(value,10)||1));configurationChanged();}
 function selectedConfiguration(){return{modelId:state.model.id,material:state.material,quality:state.quality,qty:state.qty,unit:state.unit,addressRevision:state.customerProfile?.addressRevision??0};}
-function configurationChanged(){quoteSequence++;state.quotes=[];state.quoteLoading=false;state.quoteError=null;quoteTask=null;clearTimeout(quoteTimer);render();if(state.connection==='online')quoteTimer=setTimeout(()=>refreshQuotes(),220);}
+function configurationChanged(){if(state.inquiryMode)workflow.modelChanged();quoteSequence++;state.quotes=[];state.quoteLoading=false;state.quoteError=null;quoteTask=null;clearTimeout(quoteTimer);render();if(state.connection==='online')quoteTimer=setTimeout(()=>refreshQuotes(),220);}
 async function refreshQuotes(retry=false){
+ if(state.inquiryMode)return;
  if(state.connection!=='online'||!state.model.id)return;
  if(state.quantityDraft!==null&&!validQuantity(state.quantityDraft)){state.quotes=[];state.quoteLoading=false;state.quoteError={message:'数量须为 1–50 的整数。'};render();return;}
  if(!hasShippingAddress()){state.quotes=[];state.quoteLoading=false;state.quoteError=null;render();return;}
@@ -190,7 +194,7 @@ async function mutate(path,payload,onSuccess,label){
  const task=await prepareMutation(path,payload);return perform(task,onSuccess,label);
 }
 function actionRequest(action,id,evidence={},success='服务端已保存操作结果'){
- return mutate('/actions',{action,id,...evidence,demoAcknowledged:true},result=>{if(result.reset){state.model={...sampleModel};state.unit='mm';state.quotes=[];}closeModal();toast(result.blockedReason?'备机已保存，任务仍等待条件满足。':success);},'正在提交操作');
+ return mutate('/actions',{action,id,...evidence,demoAcknowledged:true},result=>{if(result.reset){state.model={...sampleModel};state.unit='mm';state.quotes=[];workflow.reset();workflow.load(merchant.isRoute()&&auth.authenticated(),{quiet:true});}closeModal();toast(result.blockedReason?'备机已保存，任务仍等待条件满足。':success);},'正在提交操作');
 }
 function setModalBusy(busy){$$('.modal button:not([data-action="close"]),.modal input,.modal select,.modal textarea').forEach(e=>{if(busy){e.dataset.wasDisabled=e.disabled?'true':'false';e.disabled=true;}else if(e.dataset.wasDisabled!==undefined){e.disabled=e.dataset.wasDisabled==='true';delete e.dataset.wasDisabled;}});}
 function showModalError(error){const container=$('.modal-body');if(!container)return;let node=$('#modal-request-error');if(!node){node=document.createElement('div');node.id='modal-request-error';node.className='error-text';node.setAttribute('role','alert');container.appendChild(node);}node.innerHTML=esc(error.message)+' <button class="link-btn" data-action="retry-operation">用原请求重试</button>';}
@@ -199,8 +203,8 @@ function render(){
  const authDraft=auth.captureForm();
  const keepQuantityFocus=state.quantityDraft!==null&&document.activeElement?.id==='quantity';
  cancelAnimationFrame(animation);
- const isMerchant=merchant.isRoute(),isAuth=auth.isRoute(),pageName=isAuth?'账号登录':isMerchant?'商家工作台':state.page==='orders'?'我的订单':'开始创作';
- const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料</button>'+(auth.authenticated()?'<button data-auth-action="logout">退出</button>':'<a class="header-account-link" href="/login">登录</a>')+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
+ const isMerchant=merchant.isRoute(),isAuth=auth.isRoute(),pageName=isAuth?'账号登录':isMerchant?'商家工作台':state.page==='orders'?'我的订单':state.page==='inquiries'?'需求与方案':'开始创作';
+ const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="inquiries" class="'+(state.page==='inquiries'?'active':'')+'">需求与方案</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料</button>'+(auth.authenticated()?'<button data-auth-action="logout">退出</button>':'<a class="header-account-link" href="/login">登录</a>')+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
  $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isAuth?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
  '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isAuth?auth.renderPage():isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
  '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="payment-plan">支付与结算</button> · <button class="text-link" data-action="about">了解当前范围</button></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
@@ -211,27 +215,30 @@ function render(){
  document.title=pageName+' · 共造';
 }
 function intro(eye,title,desc,actions=''){return '<div class="page-intro"><div><div class="eyebrow">'+eye+'</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+actions+'</div>';}
-function renderPage(){switch(state.page){case'orders':return ordersPage();case'farm':return farmPage();case'network':return networkPage();case'catalog':return catalogPage();default:return workspacePage();}}
+function renderPage(){switch(state.page){case'inquiries':return workflow.customerInbox();case'orders':return ordersPage();case'farm':return farmPage();case'network':return networkPage();case'catalog':return catalogPage();default:return workspacePage();}}
 function workspacePage(){
  const m=state.model;
- const actions='<div class="intro-actions"><button class="btn" data-action="sample">'+I('cube')+'体验示例模型</button><button class="btn primary" data-action="upload">'+I('plus')+'新建项目</button></div>';
+ const actions='<div class="intro-actions"><button class="btn" data-action="sample">'+I('cube')+'体验示例模型</button><button class="btn primary" data-action="upload">'+I('upload')+'上传模型</button></div>';
  const label='让想法，成为实物。';
  const unitScale=state.unit==='inch'?25.4:1;
  const dims=m.review?'待工程确认':m.dimensions.map(n=>(Number(n)*unitScale).toFixed(1)).join(' × ');
  let qs=[...state.quotes];if(state.sort==='price')qs.sort((a,b)=>a.total-b.total);if(state.sort==='fast')qs.sort((a,b)=>a.days[0]-b.days[0]);
- return intro('MAKE SOMETHING REAL',label,'上传你的设计。选择制造伙伴。等待作品送达。',actions)+
+ return intro('MAKE SOMETHING REAL',label,'上传模型，说清需求。商家确认方案后，再开始制造。',actions)+
 
  '<div class="workspace-grid"><section class="card model-card"><div class="card-head"><h2>'+I('cube')+'模型预览</h2><span class="badge '+(m.review||m.localOnly?'amber':'teal')+'">'+(m.localOnly?'本地预览 · 未上传':m.review?'待工程审核':m.isSample?'示例模型':'服务端已解析 · 待制造校验')+'</span></div>'+
  '<div class="viewer"><div class="viewer-grid"></div><canvas id="model-canvas" aria-label="三维模型预览，可拖动旋转" tabindex="0"></canvas><div class="viewer-top"><span class="viewer-tag">'+(m.review?'FILE REVIEW':'PERSPECTIVE VIEW')+'</span><div class="viewer-tools"><button data-action="zoom-in" aria-label="放大模型">'+I('plus')+'</button><button data-action="zoom-out" aria-label="缩小模型">'+I('minus')+'</button><button data-action="reset-view" aria-label="复位视角">'+I('expand')+'</button></div></div><div class="viewer-note">'+I('cursor')+(m.review?'此文件格式仅登记，尚未生成三维预览':'拖动旋转 · 滚轮缩放 · 方向键调整视角')+'</div><span class="axis">X Y Z</span></div>'+
  '<div class="model-strip"><div class="file-icon">'+I('file')+'</div><div><div class="model-name">'+esc(m.name)+'</div><div class="file-meta">'+(m.size/1024).toFixed(0)+' KB · '+(m.review?'等待 CAD 解析':m.faceCount.toLocaleString()+' 个三角面')+'</div></div><button class="link-btn" data-action="upload">更换模型 '+I('arrow')+'</button></div>'+
  '<div class="model-metrics"><div class="metric"><span>外形尺寸 '+(m.review?'':'/ mm')+'</span><strong>'+dims+'</strong></div><div class="metric"><span>实体体积</span><strong>'+(m.review?'待解析':(m.volume*unitScale**3).toFixed(1)+' cm³')+'</strong></div><div class="metric"><span>当前用途</span><strong>原型与定制部件</strong></div></div></section>'+
+ (state.inquiryMode?workflow.customerForm():(
  '<section class="card"><div class="card-head"><h2>'+I('settings')+'配置你的作品</h2><span class="small muted" style="font-size:10px">演示估价</span></div><div class="form-body">'+
  '<div class="field"><div class="field-label">制造材料 <span>选择适合你的材料</span></div><div class="material-grid">'+Object.entries(materials).map(([k,v])=>'<button class="material-option '+(state.material===k?'selected':'')+'" data-action="material" data-material="'+k+'"><span class="swatch" style="background:'+v.color+'"></span>'+v.label+'</button>').join('')+'</div></div>'+
  (materials[state.material].process==='FDM'?'<div class="field"><div class="field-label">打印层高 <span>尺寸公差需单独确认</span></div><div class="segmented"><button data-action="quality" data-quality="standard" class="'+(state.quality==='standard'?'selected':'')+'">标准 · 0.20 mm</button><button data-action="quality" data-quality="fine" class="'+(state.quality==='fine'?'selected':'')+'">精细 · 0.12 mm</button></div></div>':'<div class="field"><div class="field-label">精度与工艺要求 <span>工程审核</span></div><div class="input" style="display:flex;align-items:center">按图纸公差与材料工艺确认</div></div>')+
  '<div class="form-row"><div class="field"><label class="field-label" for="quantity">制作数量</label><div class="stepper"><button data-action="qty-minus" aria-label="减少数量">−</button><input id="quantity" type="number" inputmode="numeric" min="1" max="50" step="1" value="'+esc(state.quantityDraft??state.qty)+'" aria-label="制作数量"/><button data-action="qty-plus" aria-label="增加数量">+</button></div></div><div class="field"><label class="field-label" for="unit">文件尺寸单位</label><select class="select" id="unit"><option value="mm" '+(state.unit==='mm'?'selected':'')+'>毫米 mm</option><option value="inch" '+(state.unit==='inch'?'selected':'')+'>英寸 inch</option></select></div></div>'+
  '<div class="field"><span class="field-label">表面处理</span><div class="input" style="display:flex;align-items:center;color:#9e9e9e">去支撑与基础清理</div></div>'+
- '<div class="hint">'+I('info')+'<span>'+materials[state.material].tip+'</span></div></div></section></div>'+
- '<section class="quote-section"><div class="section-heading"><h2>为你匹配的制造伙伴 <span class="small">3 家演示商家</span></h2><select class="sort-select" id="quote-sort" aria-label="报价排序"><option value="recommended" '+(state.sort==='recommended'?'selected':'')+'>综合推荐排序</option><option value="price" '+(state.sort==='price'?'selected':'')+'>报价从低到高</option><option value="fast" '+(state.sort==='fast'?'selected':'')+'>预计交付更快</option></select></div>'+(qs.length?'<div class="quotes">'+qs.map(quoteCard).join('')+'</div>':quotePlaceholder())+'<p class="inline-note">报价由服务端按模型记录、数量、层高、排队情况和配送地区计算。当前为沙盒估算，尚未经过真实切片与商家确认，不保证实际价格或交期。</p></section>'+
+ '<div class="hint">'+I('info')+'<span>'+materials[state.material].tip+'</span></div></div></section>'))+'</div>'+
+ (!state.inquiryMode?(
+ '<section class="quote-section"><div class="section-heading"><h2>为你匹配的制造伙伴 <span class="small">3 家演示商家</span></h2><select class="sort-select" id="quote-sort" aria-label="报价排序"><option value="recommended" '+(state.sort==='recommended'?'selected':'')+'>综合推荐排序</option><option value="price" '+(state.sort==='price'?'selected':'')+'>报价从低到高</option><option value="fast" '+(state.sort==='fast'?'selected':'')+'>预计交付更快</option></select></div>'+(qs.length?'<div class="quotes">'+qs.map(quoteCard).join('')+'</div>':quotePlaceholder())+'<p class="inline-note">报价由服务端按模型记录、数量、层高、排队情况和配送地区计算。当前为沙盒估算，尚未经过真实切片与商家确认，不保证实际价格或交期。</p></section>'):workflow.customerInbox({compact:true}))+
+ '<div class="workflow-mode-switch"><button class="text-link" data-action="toggle-estimate-mode">'+(state.inquiryMode?'查看原有快速估价演示':'返回模型需求流程')+' '+I('arrow')+'</button></div>'+
  '<div class="assurance"><span>'+I('shield')+'设计文件按需授权</span><span>'+I('clock')+'生产进度全程可见</span><span>'+I('truck')+'收货验收后结算</span></div>';
 }
 function quoteCard(q){
@@ -278,7 +285,7 @@ function orderCard(o){
  const stages=['下单','生产','质检','物流','验收','结算'];
  let action='<a class="btn tiny" href="/merchant#orders">商家履约演示 '+I('arrow')+'</a>';
  let note='服务端已保存文件、配置与报价快照。尚未生成真实切片文件。';
- if(o.status==='review'){note='文件、工艺或配送地区需审核，尚未付款或生成生产指令。';action='<button class="btn tiny" data-action="cancel-order" data-id="'+esc(o.id)+'">撤回询价</button>';}
+ if(o.status==='review'){note=o.approvedPlan?'制造方案已确认，款项仅模拟冻结。等待生产校验，未生成真实机器指令。':'文件、工艺或配送地区需审核，尚未付款或生成生产指令。';action=o.approvedPlan?'':'<button class="btn tiny" data-action="cancel-order" data-id="'+esc(o.id)+'">撤回询价</button>';}
  if(o.status==='queued'){note='等待前序任务完成、设备清台或按本单材料备机。';action='<button class="btn tiny" data-action="cancel-order" data-id="'+esc(o.id)+'">取消演示订单</button>'+action;}
  if(o.productionState==='WAITING_REMOVAL')note='打印完成，等待农场主取件、清台和质检。';
  if(o.productionState==='QC_FAILED')note='质检未通过，暂停发货与结算，可提交退款申请。';
@@ -296,7 +303,7 @@ function orderCard(o){
  if(canRaiseDispute(o))action+='<button class="btn tiny" data-action="dispute" data-id="'+esc(o.id)+'">'+(o.disputeState==='OPEN'?'撤销演示争议':'发起演示争议')+'</button>';
  if(canRequestRefund(o)&&o.productionState!=='QUEUED')action+='<button class="btn tiny" data-action="request-refund" data-id="'+esc(o.id)+'">'+(o.refundState==='REJECTED'?'重新申请退款':'申请退款')+'</button>';
  action+='<button class="btn tiny" data-action="order-history" data-id="'+esc(o.id)+'">订单记录</button>';
- const label=o.disputeState==='OPEN'?'争议处理中':stageNames[o.status]||'状态待核验';
+ const label=o.disputeState==='OPEN'?'争议处理中':o.status==='review'&&o.approvedPlan?'方案已确认 · 待生产校验':stageNames[o.status]||'状态待核验';
  return '<article class="card"><div class="order-top"><div><div class="order-title">'+esc(o.modelName)+'</div><div class="order-sub">'+esc(f?.name||o.farm)+' · '+esc(material?.label||o.material)+' · '+o.qty+' 件'+(material?.process==='FDM'?' · '+(o.quality==='fine'?'0.12':'0.20')+' mm 层高':'')+'</div><div class="order-sub">'+esc(destinations[o.destination]||'旧演示订单未记录地区')+(o.quoteSnapshot?.days?' · 下单时估计 '+o.quoteSnapshot.days[0]+'–'+o.quoteSnapshot.days[1]+' 天收到（演示）':'')+'</div><div class="order-sub mono">'+esc(o.id)+' · '+esc(displayTime(o.created))+'</div></div><div><span class="badge">'+label+'</span><div class="order-price">'+(o.total?money(o.total):'待报价')+'</div></div></div><div class="order-body">'+(idx>=0?'<div class="timeline">'+stages.map((s,i)=>'<div class="timeline-item '+(i<idx?'done':i===idx?'current':'')+'">'+s+'</div>').join('')+'</div>':'')+fundsSummary(o)+'<div class="order-bottom"><span>'+note+'</span><div class="order-actions">'+action+'</div></div></div></article>';
 }
 function merchantFinancialTasks(){
@@ -390,7 +397,7 @@ async function loadFile(file){
  if(ext==='stl'){preview=parseSTL(data);preview.review=!preview.closed;}
  if(state.connection!=='online'){state.model={...preview,id:null,name:file.name,size:file.size,isSample:false,localOnly:true};state.unit='mm';state.quotes=[];closeModal();changePage('create');toast('仅在本地预览，恢复连接后请重新上传');return;}
  const task=await prepareMutation('/models',data,{raw:true,headers:{'X-File-Name':encodeURIComponent(file.name)}});
- await perform(task,result=>{state.model={...preview,...result.model,dimensions:result.model.dimensions||[],volume:result.model.volume||0,isSample:false,localOnly:false};state.unit='mm';state.quotes=[];closeModal();state.page='create';yaw=-.64;pitch=.37;zoom=1;toast('服务端已登记文件，正在获取报价');refreshQuotes();},'正在上传并分析模型');
+ await perform(task,result=>{state.model={...preview,...result.model,dimensions:result.model.dimensions||[],volume:result.model.volume||0,isSample:false,localOnly:false};state.unit='mm';state.quotes=[];closeModal();state.page='create';yaw=-.64;pitch=.37;zoom=1;workflow.modelChanged();toast('模型已保存，请核对尺寸并填写需求。');refreshQuotes();},'正在上传并分析模型');
  }catch(e){const node=$('#upload-error');if(node)node.textContent=e.message;else toast(e.message);}
 }
 function parseSTL(buf){
@@ -407,7 +414,7 @@ function parseSTL(buf){
  const closed=[...edges.values()].every(n=>n===2)&&Math.abs(signed)>0;
  const step=Math.max(1,Math.ceil(tris.length/7000));return{triangles:tris.filter((_,i)=>i%step===0).map(t=>t.map(v=>v.map((n,k)=>(n-center[k])*scale))),dimensions,originalDimensions:[...dimensions],volume:Math.abs(signed)/1000,originalVolume:Math.abs(signed)/1000,faceCount:tris.length,closed};
 }
-function changePage(p){if(p==='farm'||p==='catalog'){location.href='/merchant'+(p==='farm'?'#orders':'#devices');return;}if($('.modal'))closeModal();state.page=p;state.menuOpen=false;state.search='';history.replaceState(null,'',p==='orders'?'/#orders':'/');render();window.scrollTo({top:0,behavior:'instant'});if(['home','create'].includes(p)&&state.connection==='online'&&!state.busy)refreshQuotes();}
+function changePage(p){if(p==='farm'||p==='catalog'){location.href='/merchant'+(p==='farm'?'#orders':'#devices');return;}if($('.modal'))closeModal();state.page=p;state.menuOpen=false;state.search='';history.replaceState(null,'',['orders','inquiries'].includes(p)?'/#'+p:'/');if(p==='inquiries')workflow.load(false,{quiet:true});render();window.scrollTo({top:0,behavior:'instant'});if(['home','create'].includes(p)&&state.connection==='online'&&!state.busy)refreshQuotes();}
 function createOrder(farmId){const q=quote(farms.find(f=>f.id===farmId));if(!q?.quoteId){toast('请先获取有效的服务端报价。');return;}if(quoteExpired(q))return expiredQuotePrompt();return mutate('/orders',{quoteId:q.quoteId,demoAcknowledged:true},()=>{closeModal();changePage('orders');toast(q.review?'服务端已保存工程询价':'服务端已创建沙盒订单，没有实际付款');},'正在创建订单');}
 function nextQueued(d){return state.orders.find(o=>o.farm===d.farm&&o.productionState==='QUEUED');}
 function readinessBody(d,removing=false){
@@ -426,6 +433,7 @@ function confirmReadiness(d){
 document.addEventListener('click',e=>{
  const el=e.target.closest('[data-action]');if(!el){if(e.target.matches('[data-dismiss]'))closeModal();return;}e.preventDefault();const a=el.dataset.action,id=el.dataset.id;const order=state.orders.find(o=>o.id===id),device=state.devices.find(d=>d.id===id);
  if(state.busy&&!['nav','close','menu','menu-close','notifications','about'].includes(a))return;
+ if(a==='toggle-estimate-mode'){state.inquiryMode=!state.inquiryMode;clearQuotes();render();if(!state.inquiryMode)refreshQuotes();return;}
  if(a==='payment-plan')return paymentPlan();
  if(a==='customer-profile')return openCustomerProfile();
  if(a==='measure-cost')return requestCostEstimate();
@@ -516,9 +524,10 @@ function drawViewer(){
 }
 window.addEventListener('resize',()=>drawViewer());
 const international=createInternationalUI({get,escape:esc});
-const auth=createAuthUI({render,resetWorkspace:()=>{clearQuotes();state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
-const merchant=createMerchantUI({auth,icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
-if(!merchant.isRoute()&&location.hash==='#orders')state.page='orders';
+const auth=createAuthUI({render,resetWorkspace:()=>{workflow.reset();clearQuotes();state.model={...sampleModel};state.qty=1;state.quantityDraft=null;state.unit='mm';state.inquiryMode=true;state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
+const workflow=createWorkflowUI({icon:I,escape:esc,render,modal,closeModal,toast,selection:()=>({model:state.model,qty:state.qty,quantityDraft:state.quantityDraft,unit:state.unit}),applyWorkspace,changePage,connection:()=>state.connection,hasAddress:hasShippingAddress,requestAddress:onSaved=>openCustomerProfile({required:true,onSaved}),merchantAuthenticated:()=>auth.authenticated(),merchantDevices:()=>merchant.state.devices});
+const merchant=createMerchantUI({auth,workflow,icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
+if(!merchant.isRoute()&&['#orders','#inquiries'].includes(location.hash))state.page=location.hash.slice(1);
 render();
 connectWorkspace();
 if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));

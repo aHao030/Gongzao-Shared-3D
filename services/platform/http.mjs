@@ -1,3 +1,4 @@
+import { getCapabilities, getInquiries } from './inquiries.mjs';
 import { getMerchantPricing } from './pricing.mjs';
 import { getCustomerProfile } from './customer.mjs';
 import { getMarketCatalog } from './market.mjs';
@@ -20,8 +21,8 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
-    if((path.startsWith('/api/v2/merchant/')&&path!=='/api/v2/merchant/pricing')||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.7.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.8.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
@@ -31,6 +32,8 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
       ensure(country === null || /^(?:[A-Za-z]{2}|OTHER)$/.test(country),400,'INVALID_COUNTRY','请选择国家或地区，或填写两位国家或地区代码');
       return jsonResponse(getMarketCatalog(country ?? undefined));
     }
+    if(request.method==='GET'&&['/api/v2/capabilities','/api/v2/merchant/capabilities'].includes(path))return jsonResponse(getCapabilities(await store.load(ownerId),path.includes('/merchant/')));
+    if(request.method==='GET'&&['/api/v2/inquiries','/api/v2/merchant/inquiries'].includes(path))return jsonResponse(getInquiries(await store.load(ownerId),path.includes('/merchant/')));
     if(request.method==='GET'&&path==='/api/v2/merchant/pricing')return jsonResponse(getMerchantPricing(await store.load(ownerId)));
     if(request.method==='GET'&&path==='/api/v2/session')return jsonResponse({mode:'SERVER_SANDBOX',authenticated:true,user:{id:ownerId,label:userLabel},persistence:store.kind,capabilities:{uploads:true,maxUploadBytes:20*1024*1024,maxStlTriangles:50000,realPayments:false,realDevices:false,wechatAuthentication:false}});
     if(request.method==='GET'&&path==='/api/v2/customer/profile')return jsonResponse({profile:getCustomerProfile(await store.load(ownerId))});
@@ -55,7 +58,7 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
       // SQLite commits metadata and bytes in one transaction; R2 uses CAS coordination.
       pendingFile={id:payload.id,bytes};
     } else {
-      const routes={'/api/v2/merchant/pricing':'pricing-profile','/api/v2/customer/profile':'customer-profile','/api/v2/quotes':'quote','/api/v2/orders':'order','/api/v2/actions':'action'};
+      const routes={'/api/v2/merchant/capabilities':'capability','/api/v2/merchant/proposals':'proposal','/api/v2/inquiries':'inquiry','/api/v2/inquiries/accept':'accept-inquiry','/api/v2/merchant/pricing':'pricing-profile','/api/v2/customer/profile':'customer-profile','/api/v2/quotes':'quote','/api/v2/orders':'order','/api/v2/actions':'action'};
       type=routes[path];ensure(type,404,'NOT_FOUND','接口不存在');
       ensure(request.headers.get('content-type')?.split(';')[0]==='application/json',415,'INVALID_CONTENT_TYPE','接口需要 application/json');
       try{payload=JSON.parse(new TextDecoder().decode(await readLimited(request,32768)));}
