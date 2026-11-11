@@ -11,6 +11,11 @@ export function modelForPricing(model) {
   if (!needsMeshAnalysis(model)) return model;
   return { ...model, volume: 0, review: true, analysisNote: '旧版几何数据需要重新解析，请重新上传同名 STL，或请商家审核原件后报价。' };
 }
+export function scaledModelGeometry(model, unit) {
+  const scale = unit === 'inch' ? 25.4 : 1;
+  const dimensions = Array.isArray(model.dimensions) ? model.dimensions.map(side => side * scale) : [];
+  return { dimensions, volume: model.volume * scale ** 3 };
+}
 export async function sha256(bytes) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('');

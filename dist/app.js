@@ -1,10 +1,12 @@
+import {createBudgetController, renderBudget} from './budget-ui.js';
+import { tradeReturnPath, tradeInboxHref, hasPlatformRoutes } from './trade-return.js';
 import { createWorkflowUI } from './workflow-ui.js';
 import { createMerchantUI } from './merchant-ui.js';
 import { createOperationsUI } from './operations-ui.js';
 import { createAuthUI } from './auth-ui.js';
 import { showFieldErrors, updateFieldError, hasFieldError } from './form-feedback.js';
 import { createInternationalUI } from './international-ui.js';
-import { get, prepareMutation, takeWorkspaceChangeNotice } from './api-client.js';
+import { get, postQuery, prepareMutation, takeWorkspaceChangeNotice } from './api-client.js';
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -228,22 +230,23 @@ function render(){
  cancelAnimationFrame(animation);
  const isMerchant=merchant.isRoute(),isAuth=auth.isRoute(),pageName=isAuth?'账号登录':isMerchant?'商家工作台':state.page==='orders'?'我的订单':state.page==='inquiries'?'需求与方案':'开始创作';
  const customerAccount=auth.authenticated()?'<details class="nav-more account-menu"><summary aria-label="账号菜单">我的账号 '+I('down')+'</summary><div class="nav-more-panel"><a href="/login">用户中心</a><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料与地址</button><button data-auth-action="logout">退出登录</button></div></details>':'<a class="customer-login-link" href="/login">用户登录 / 注册</a>';
- const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="inquiries" class="'+(state.page==='inquiries'?'active':'')+'">需求与方案</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button>'+customerAccount+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
+ const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="inquiries" class="'+(state.page==='inquiries'?'active':'')+'">需求与方案</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><a class="inbox-nav-link" href="'+esc(tradeInboxHref('buyer',undefined,hasPlatformRoutes() && state.connection!=='offline'))+'">消息</a>'+customerAccount+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
  $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isAuth?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
  '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isAuth?auth.renderPage():isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
  '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="payment-plan">支付与结算</button> · <button class="text-link" data-action="about">了解当前范围</button> · <a class="text-link" href="/login">用户登录与账号</a> · <a class="text-link" href="/admin/login">平台管理</a></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
  auth.restoreForm(authDraft);
  if(!isMerchant&&!isAuth&&(state.page==='home'||state.page==='create'))setupViewer();
+ syncBudget();
  if(state.busy)$$('#main button,#main input,#main select').forEach(el=>{el.disabled=true;});
  if(keepQuantityFocus&&!state.busy)$('#quantity')?.focus({preventScroll:true});
  document.title=pageName+' · 共造';
 }
-function intro(eye,title,desc,actions=''){return '<div class="page-intro"><div><div class="eyebrow">'+eye+'</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+actions+'</div>';}
+function intro(eye,title,desc,actions=''){return '<div class="page-intro"><div>'+(eye?'<div class="eyebrow">'+eye+'</div>':'')+'<h1>'+title+'</h1><p>'+desc+'</p></div>'+actions+'</div>';}
 function renderPage(){switch(state.page){case'inquiries':return workflow.customerInbox();case'orders':return ordersPage();case'farm':return farmPage();case'network':return networkPage();case'catalog':return catalogPage();default:return workspacePage();}}
 function workspacePage(){
  const m=state.model;
  const actions='<div class="intro-actions"><button class="text-link sample-link" data-action="sample">体验示例</button><button class="btn primary" data-action="upload">'+I('upload')+'上传模型</button></div>';
- const label='让想法，成为实物。';
+ const label='模型询价';
  const unitScale=state.unit==='inch'?25.4:1;
  const hasMesh=m.isSample||Boolean(m.triangles?.length);
  const dims=hasMesh?m.dimensions.map(n=>(Number(n)*unitScale).toFixed(1)).join(' × '):'待工程确认';
@@ -252,23 +255,22 @@ function workspacePage(){
   const rank=q=>q.review?Infinity:state.sort==='price'?q.total:q.days[0];
   qs.sort((a,b)=>rank(a)-rank(b));
  }
- return intro('MAKE SOMETHING REAL',label,'上传模型，说明需求，确认方案后开始制造。',actions)+
+ return intro('',label,'上传模型，查看制造预算，或联系商家确认报价。',actions)+
 
  '<div class="workspace-grid"><section class="card model-card"><div class="card-head"><h2>'+I('cube')+'模型预览</h2><span class="badge '+(m.review||m.localOnly?'amber':'teal')+'">'+(m.localOnly?'本地预览 · 未上传':m.review?'待工程审核':m.isSample?'示例模型':'服务端已解析 · 待制造校验')+'</span></div>'+
  '<div class="viewer"><div class="viewer-grid"></div><canvas id="model-canvas" aria-label="三维模型预览，可拖动旋转" tabindex="0"></canvas><div class="viewer-top"><span class="viewer-tag">'+(m.review?'FILE REVIEW':'PERSPECTIVE VIEW')+'</span><div class="viewer-tools"><button data-action="zoom-in" aria-label="放大模型">'+I('plus')+'</button><button data-action="zoom-out" aria-label="缩小模型">'+I('minus')+'</button><button data-action="reset-view" aria-label="复位视角">'+I('expand')+'</button></div></div><div class="viewer-note">'+I('cursor')+(hasMesh?'拖动旋转 · 滚轮缩放 · 方向键调整视角':'等待工程解析后确认尺寸')+'</div><span class="axis">X Y Z</span></div>'+
  '<div class="model-strip"><div class="file-icon">'+I('file')+'</div><div><div class="model-name">'+esc(m.name)+'</div><div class="file-meta">'+(m.size/1024).toFixed(0)+' KB · '+(hasMesh?m.faceCount.toLocaleString()+' 个三角面':'待工程审核')+'</div></div><button class="link-btn" data-action="upload">更换模型 '+I('arrow')+'</button></div>'+
  '<div class="model-metrics model-facts"><div class="metric"><span>外形尺寸 '+(hasMesh?'/ mm':'')+'</span><strong>'+dims+'</strong></div><div class="metric"><span>实体体积</span><strong>'+(m.review?'待工程确认':(m.volume*unitScale**3).toFixed(1)+' cm³')+'</strong></div></div></section>'+
- (state.inquiryMode?workflow.customerForm():(
+ (state.inquiryMode?workflow.customerForm(budgetSlot):(
  '<section class="card"><div class="card-head"><h2>'+I('settings')+'配置你的作品</h2><span class="small muted" style="font-size:10px">演示估价</span></div><div class="form-body">'+
  '<div class="field"><div class="field-label">制造材料 <span>选择适合你的材料</span></div><div class="material-grid">'+Object.entries(materials).map(([k,v])=>'<button class="material-option '+(state.material===k?'selected':'')+'" data-action="material" data-material="'+k+'"><span class="swatch" style="background:'+v.color+'"></span>'+v.label+'</button>').join('')+'</div></div>'+
  (materials[state.material].process==='FDM'?'<div class="field"><div class="field-label">打印层高 <span>尺寸公差需单独确认</span></div><div class="segmented"><button data-action="quality" data-quality="standard" class="'+(state.quality==='standard'?'selected':'')+'">标准 · 0.20 mm</button><button data-action="quality" data-quality="fine" class="'+(state.quality==='fine'?'selected':'')+'">精细 · 0.12 mm</button></div></div>':'<div class="field"><div class="field-label">精度与工艺要求 <span>工程审核</span></div><div class="input" style="display:flex;align-items:center">按图纸公差与材料工艺确认</div></div>')+
  '<div class="form-row"><div class="field"><label class="field-label" for="quantity">制作数量</label><div class="stepper"><button data-action="qty-minus" aria-label="减少数量">−</button><input id="quantity" type="number" aria-describedby="quantity-error" required inputmode="numeric" min="1" max="50" step="1" value="'+esc(state.quantityDraft??state.qty)+'" aria-label="制作数量"/><button data-action="qty-plus" aria-label="增加数量">+</button></div><small class="field-error" id="quantity-error" role="status">'+(state.quantityDraft!==null&&!validQuantity(state.quantityDraft)?'数量须为 1–50 的整数。':'')+'</small></div><div class="field"><label class="field-label" for="unit">文件尺寸单位</label><select class="select" id="unit"><option value="mm" '+(state.unit==='mm'?'selected':'')+'>毫米 mm</option><option value="inch" '+(state.unit==='inch'?'selected':'')+'>英寸 inch</option></select></div></div>'+
  '<div class="field"><span class="field-label">表面处理</span><div class="input" style="display:flex;align-items:center;color:#9e9e9e">去支撑与基础清理</div></div>'+
- '<div class="hint">'+I('info')+'<span>'+materials[state.material].tip+'</span></div></div></section>'))+'</div>'+
+ '<div class="hint">'+I('info')+'<span>'+materials[state.material].tip+'</span></div>'+budgetSlot+'</div></section>'))+'</div>'+
  (!state.inquiryMode?(
  '<section class="quote-section"><div class="section-heading"><h2>为你匹配的制造伙伴 <span class="small">3 家演示商家</span></h2><select class="sort-select" id="quote-sort" aria-label="报价排序"><option value="recommended" '+(state.sort==='recommended'?'selected':'')+'>综合推荐排序</option><option value="price" '+(state.sort==='price'?'selected':'')+'>报价从低到高</option><option value="fast" '+(state.sort==='fast'?'selected':'')+'>预计交付更快</option></select></div>'+(qs.length?'<div class="quotes">'+qs.map(quoteCard).join('')+'</div>':quotePlaceholder())+'<p class="inline-note">各家报价的估算依据、费用及预计到货时间可在费用明细中查看。</p></section>'):workflow.customerInbox({compact:true}))+
- '<div class="workflow-mode-switch"><button class="text-link" data-action="toggle-estimate-mode">'+(state.inquiryMode?'查看原有快速估价演示':'返回模型需求流程')+' '+I('arrow')+'</button></div>'+
- '<div class="assurance"><span>'+I('shield')+'设计文件按需授权</span><span>'+I('clock')+'生产进度全程可见</span><span>'+I('truck')+'收货验收后结算</span></div>';
+ '<div class="workflow-mode-switch"><button class="text-link" data-action="toggle-estimate-mode">'+(state.inquiryMode?'查看原有快速估价演示':'返回模型需求流程')+' '+I('arrow')+'</button></div>';
 }
 function quoteCard(q){
  const f=q.farm;return '<article class="quote-card '+(f.id==='f1'?'recommended':'')+'">'+(f.id==='f1'?'<span class="recommend-label">综合推荐 · 演示</span>':'')+
@@ -502,6 +504,7 @@ document.addEventListener('click',e=>{
  if(a==='sample'){state.model={...sampleModel};state.unit='mm';closeModal();yaw=-.64;pitch=.37;zoom=1;configurationChanged();toast('已载入示例模型');return;}
  if(a==='material'){state.material=el.dataset.material;configurationChanged();return;}
  if(a==='quality'){state.quality=el.dataset.quality;configurationChanged();return;}
+ if(a==='retry-budget'){syncBudget(true);return;}
  if(a==='qty-plus'||a==='qty-minus'){state.quantityDraft=null;state.qty=Math.min(50,Math.max(1,state.qty+(a==='qty-plus'?1:-1)));configurationChanged();return;}
  if(a==='zoom-in'){zoom=Math.min(2.5,zoom+.15);drawViewer();return;}
  if(a==='zoom-out'){zoom=Math.max(.5,zoom-.15);drawViewer();return;}
@@ -555,7 +558,7 @@ document.addEventListener('input',e=>{
  if(e.target.id==='customer-country-code'&&international.selectKnownCountry(e.target.value)){
   showFieldErrors($('#customer-profile-form'),{},{summaryId:'customer-form-error',focus:false});return;
  }
- updateCustomerField(e.target);if(e.target.id==='quantity'){editQuantity(e.target.value);return;}if(e.target.id==='network-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const input=$('#network-search');input.focus();input.setSelectionRange(pos,pos);}});
+ updateCustomerField(e.target);if(e.target.id==='quantity'){editQuantity(e.target.value);syncBudget();return;}if(e.target.id==='network-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const input=$('#network-search');input.focus();input.setSelectionRange(pos,pos);}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){const menu=$('.nav-more[open]');if(menu){menu.open=false;menu.querySelector('summary')?.focus();}else closeModal();}if(e.key==='Tab'&&$('.modal')){const nodes=$$('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]',$('.modal'));const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
 function box(x,y,z,w,h,d){const v=[[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z],[x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]];const f=[[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[2,3,7],[2,7,6],[1,2,6],[1,6,5],[3,0,4],[3,4,7]];return f.map(t=>t.map(i=>v[i]));}
 function sampleMesh(){return [...box(-38,-26,-25,76,8,50),...box(-38,-18,17,76,52,8),...box(-38,-18,-25,8,19,42),...box(30,-18,-25,8,19,42)];}
@@ -580,9 +583,25 @@ function drawViewer(){
 }
 window.addEventListener('resize',()=>drawViewer());
 const international=createInternationalUI({get,escape:esc});
-const auth=createAuthUI({render,feedback:{show:showFieldErrors,update:updateFieldError,has:hasFieldError},resetWorkspace:()=>{workflow.reset();clearQuotes();state.model={...sampleModel};state.qty=1;state.quantityDraft=null;state.unit='mm';state.inquiryMode=true;state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.resetOperations?.();merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
+const auth=createAuthUI({render,tradeReturn:tradeReturnPath(new URLSearchParams(location.search).get('returnTo')),feedback:{show:showFieldErrors,update:updateFieldError,has:hasFieldError},resetWorkspace:()=>{workflow.reset();clearQuotes();state.model={...sampleModel};state.qty=1;state.quantityDraft=null;state.unit='mm';state.inquiryMode=true;state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.resetOperations?.();merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
 const workflow=createWorkflowUI({icon:I,escape:esc,render,modal,closeModal,toast,selection:()=>({model:state.model,qty:state.qty,quantityDraft:state.quantityDraft,unit:state.unit}),applyWorkspace,changePage,connection:()=>state.connection,hasAddress:hasShippingAddress,requestAddress:onSaved=>openCustomerProfile({required:true,onSaved}),merchantAuthenticated:()=>auth.authenticated(),merchantDevices:()=>merchant.state.devices});
 const merchant=createMerchantUI({operationsFactory:createOperationsUI,auth,workflow,icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
+const budgetSlot='<section id="model-budget" class="model-budget" aria-label="模型预算"></section>';
+const budget=createBudgetController({request:payload=>postQuery('/budget-estimate',payload),changed:paintBudget});
+function paintBudget(view){
+ const panel=$('#model-budget');
+ if(!panel)return;
+ const focus=panel.contains(document.activeElement)?document.activeElement.dataset.budgetFocus:null;
+ panel.innerHTML=renderBudget(view,Boolean(panel.querySelector('details[open]')),hasPlatformRoutes());
+ if(focus)panel.querySelector('[data-budget-focus="'+focus+'"]')?.focus({preventScroll:true});
+}
+function syncBudget(retry=false){
+ if(!$('#model-budget')){budget.reset();return;}
+ const view=budget.select({model:state.model,qty:state.quantityDraft??state.qty,unit:state.unit,
+  material:state.inquiryMode?workflow.state.draft.material:state.material,quality:state.inquiryMode?'standard':state.quality,
+  connection:state.connection,workspace:state.session?.workspaceContext},retry);
+ paintBudget(view);
+}
 if(!merchant.isRoute()&&['#orders','#inquiries'].includes(location.hash))state.page=location.hash.slice(1);
 render();
 connectWorkspace();

@@ -12,6 +12,21 @@ git -C ../Gongzao-original tag --list
 git -C ../Gongzao-original log --oneline --decorate
 ```
 
+## 恢复 v0.9.5
+
+先用上方命令将基础历史包克隆到 `../Gongzao-original`。新增的 [v0.9.5.bundle](v0.9.5.bundle) 是增量包，依赖基础包中的 v0.9.4 原始提交 `ab5f1eba9392ef8795665cca06c7b260e306adb1`。以下命令从本仓库的克隆根目录运行。
+
+```sh
+git -C ../Gongzao-original bundle verify ../Gongzao-Shared-3D/history/v0.9.5.bundle
+git -C ../Gongzao-original fetch ../Gongzao-Shared-3D/history/v0.9.5.bundle refs/tags/v0.9.5:refs/tags/v0.9.5
+git -C ../Gongzao-original switch --detach v0.9.5
+git -C ../Gongzao-original show --no-patch v0.9.5
+```
+
+上述相对路径假定本仓库的克隆目录名是 `Gongzao-Shared-3D`。目录名不同时，可在 `bundle verify` 和 `fetch` 两处改用增量包的绝对路径。
+
+增量包 SHA-256 为 `782e3470804c1faf5c02a90869ce86c5a58d2911308ffb8821b9d8a78e543c5c`，原始附注标签对象为 `b510b25982808cb8569ed425932ad41d56e26d59`。GitHub 网页中可由 `release/v0.9.5` 分支查看此版源码。
+
 下表保留原始提交及本次历史归档提交的对应关系。归档时逐版校验了完整的 Git 文件树。
 
 | 版本 | 原始提交 | 在线归档提交 |
@@ -29,3 +44,4 @@ git -C ../Gongzao-original log --oneline --decorate
 | [v0.9.2](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.2) | `bf1a75aae519097cbb8c494ca25584bdd47ed137` | [505559520b85](https://github.com/aHao030/Gongzao-Shared-3D/commit/505559520b852b66ec3a52cf08e0cd160b9469ba) |
 | [v0.9.3](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.3) | `5a58e71c82874fdc5935cfb52626375c147f0e78` | [b8422bec3000](https://github.com/aHao030/Gongzao-Shared-3D/commit/b8422bec30007ed539fda808a0201bbb2d0f9564) |
 | [v0.9.4](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.4) | `ab5f1eba9392ef8795665cca06c7b260e306adb1` | [9daab63bb6d0](https://github.com/aHao030/Gongzao-Shared-3D/commit/9daab63bb6d072a9760552ff1ee22bee91cd2408) |
+| [v0.9.5](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.5) | `3475523be0b7a6f7349728a4e25ad68ef5cf604f` | [2c64ca9d4ebb](https://github.com/aHao030/Gongzao-Shared-3D/commit/2c64ca9d4ebbf596030c17ff3b8a15ea12195507) |

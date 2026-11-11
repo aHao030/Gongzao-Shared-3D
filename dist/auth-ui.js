@@ -34,7 +34,7 @@ export function authFieldErrors(values,{registering=false}={}) {
   return errors;
 }
 
-export function createAuthUI({render, feedback=null, resetWorkspace = () => {}}) {
+export function createAuthUI({render, tradeReturn=null, feedback=null, resetWorkspace = () => {}}) {
   const state = {config:null,session:null,loaded:false,loading:false,error:'',mode:'login',busy:false};
   const $ = selector => document.querySelector(selector);
   const isRoute = () => /^\/(?:login|account\/login)\/?$/.test(location.pathname);
@@ -56,7 +56,7 @@ export function createAuthUI({render, feedback=null, resetWorkspace = () => {}})
     return '<div class="auth-provider-heading">其他登录方式</div><div class="auth-providers">'+(state.config?.providers||[]).map(provider=>{
       const path=provider.enabled&&safeAuthPath(provider.authorizationPath),label=escape(provider.label);
       const content='<span class="auth-provider-mark" aria-hidden="true">'+escape(providerMarks[provider.id]||'↗')+'</span><span>'+label+'</span>'+(path?'':'<small>待开通</small>');
-      return path?'<a class="auth-provider" href="'+escape(path+(path.includes('?')?'&':'?')+'returnTo='+encodeURIComponent(merchantRoute()?'/merchant':'/'))+'" aria-label="使用'+label+'登录">'+content+'</a>':'<button type="button" class="auth-provider" disabled aria-label="'+label+'登录尚未开通">'+content+'</button>';
+      return path?'<a class="auth-provider" href="'+escape(path+(path.includes('?')?'&':'?')+'returnTo='+encodeURIComponent(tradeReturn || (merchantRoute()?'/merchant':'/')))+'" aria-label="使用'+label+'登录">'+content+'</a>':'<button type="button" class="auth-provider" disabled aria-label="'+label+'登录尚未开通">'+content+'</button>';
     }).join('')+'</div>';
   }
   function identity() {
@@ -68,13 +68,14 @@ export function createAuthUI({render, feedback=null, resetWorkspace = () => {}})
     const title=merchant?'商家登录':'用户登录';
     const roleNav='<nav class="auth-role-switch" aria-label="登录身份"><a href="/login" '+(!merchant?'aria-current="page"':'')+'>个人用户</a><a href="/merchant/login" '+(merchant?'aria-current="page"':'')+'>商家</a></nav>';
     if(!state.loaded)return roleNav+'<div class="auth-panel"><h2>'+title+'</h2><p class="login-description">'+(state.error?escape(state.error):'正在连接账号服务…')+'</p>'+(state.error?'<button class="btn primary full" data-auth-action="retry">重新连接</button>':'')+'</div>';
-    if(authenticated())return roleNav+'<div class="auth-panel"><h2>你的账号</h2>'+identity()+(state.error?'<p class="error-text" role="alert">'+escape(state.error)+'</p>':'')+'<p class="login-description">'+(merchant?'已完成账号登录。店铺资料与商家资质独立管理。':(state.config?.mode==='HOSTED_PLATFORM'?'你已通过平台登录，可直接进入创作空间。独立部署版提供邮箱注册与密码登录。':'你已登录共造，可管理收货资料与订单。'))+'</p>'+(merchant?'':'<a class="btn primary full" href="/">进入创作空间</a>')+'<details class="auth-alternatives"><summary>其他登录方式</summary>'+providerList()+'<p class="auth-help">'+escape(state.config.notice||'第三方渠道配置后开放。')+'</p></details></div>';
+    if(authenticated())return roleNav+'<div class="auth-panel"><h2>你的账号</h2>'+identity()+(state.error?'<p class="error-text" role="alert">'+escape(state.error)+'</p>':'')+'<p class="login-description">'+(merchant?'已完成账号登录。店铺资料与商家资质独立管理。':(state.config?.mode==='HOSTED_PLATFORM'?'你已通过平台登录，可直接进入创作空间。独立部署版提供邮箱注册与密码登录。':'你已登录共造，可管理收货资料与订单。'))+'</p>'+(tradeReturn?'<a class="btn primary full" href="'+escape(tradeReturn)+'">继续咨询</a>':merchant?'':'<a class="btn primary full" href="/">进入创作空间</a>')+'<details class="auth-alternatives"><summary>其他登录方式</summary>'+providerList()+'<p class="auth-help">'+escape(state.config.notice||'第三方渠道配置后开放。')+'</p></details></div>';
     const registering=state.mode==='register',emailEnabled=state.config.emailPassword?.enabled;
     let body=roleNav+'<div class="auth-panel">'+(callbackError?'<p class="error-text" role="alert">'+callbackError+'</p>':'')+'<h2>'+title+'</h2><p class="login-description">'+(merchant?'一个账号，连接你的制造工作。':'从你的下一个想法开始。')+'</p>';
     if(emailEnabled){
       body+='<div class="auth-tabs" role="group" aria-label="登录或注册"><button type="button" data-auth-action="login-mode" aria-pressed="'+(!registering)+'">邮箱登录</button><button type="button" data-auth-action="register-mode" aria-pressed="'+registering+'" '+(state.config.emailPassword.registrationEnabled?'':'disabled')+'>创建账号</button></div><form id="auth-form" class="auth-form" novalidate><div id="auth-error" class="form-error-summary" role="alert" aria-live="polite" hidden></div>'+(registering?'<label for="auth-name">称呼（选填）</label><input class="input" id="auth-name" maxlength="64" autocomplete="nickname"/>':'')+'<label for="auth-email">邮箱地址</label><input class="input" id="auth-email" name="username" type="email" required maxlength="254" autocomplete="username" placeholder="QQ 邮箱、Gmail 或其他邮箱"/><label for="auth-password">共造账号密码</label><input class="input" id="auth-password" name="password" type="password" minlength="12" maxlength="128" required autocomplete="'+(registering?'new-password':'current-password')+'" aria-describedby="auth-password-note"/><p class="auth-help" id="auth-password-note">'+(registering?'设置 12–128 个字符的共造密码，请勿使用邮箱密码。':'填写注册共造时设置的密码，不是 QQ 或 Gmail 邮箱密码。')+'</p>'+(registering?'<label for="auth-password-confirm">确认密码</label><input class="input" id="auth-password-confirm" type="password" required minlength="12" maxlength="128" autocomplete="new-password"/>':'')+(registering&&state.session.legacyWorkspaceAvailable?'<label class="auth-adopt"><input id="auth-adopt" type="checkbox"/><span>将此浏览器原有的沙盒订单、设备和店铺资料归入新账号。仅在这些资料属于你时选择；不勾选将创建新空间。</span></label>':'')+'<button type="submit" class="btn primary full">'+(registering?'创建账号并登录':'登录')+' <span aria-hidden="true">→</span></button></form><p class="auth-help auth-mail-note">当前未接入邮件验证与密码找回。注册无需等待邮件。</p>';
     }else if(state.config.platform?.enabled){
-      const path=safeAuthPath(state.config.platform.signInUrl);
+      const signIn=safeAuthPath(state.config.platform.signInUrl);
+      const path=signIn && tradeReturn ? signIn+'?return_to='+encodeURIComponent(tradeReturn) : signIn;
       body+='<p class="auth-hosted-note">此在线预览使用平台身份登录。独立部署版支持邮箱密码与配置后的第三方账号。</p>'+(path?'<a class="btn primary full" href="'+escape(path)+'">通过平台登录</a>':'<p>请重新打开平台登录入口。</p>');
     }
     body+='<details class="auth-alternatives"><summary>其他登录方式</summary>'+providerList()+'<p class="auth-help auth-provider-note">'+escape(state.config.notice||'第三方登录需配置并审核后开通。')+'</p></details></div>';
@@ -102,7 +103,7 @@ export function createAuthUI({render, feedback=null, resetWorkspace = () => {}})
     const email=values.email.trim(),password=values.password;
     const payload={email,password,...(registering?{displayName:values.name.trim(),...($('#auth-adopt')?.checked?{adoptLegacyWorkspace:true}:{})}:{})};
     setBusy(true);
-    try{state.session=await authRequest(registering?'register':'login',payload);$('#auth-password').value='';if($('#auth-password-confirm'))$('#auth-password-confirm').value='';resetWorkspace();location.assign(merchantRoute()?'/merchant':'/');}
+    try{state.session=await authRequest(registering?'register':'login',payload);$('#auth-password').value='';if($('#auth-password-confirm'))$('#auth-password-confirm').value='';resetWorkspace();location.assign(tradeReturn || (merchantRoute()?'/merchant':'/'));}
     catch(error){setBusy(false);if(feedback)feedback.show(form,{},{summaryId:'auth-error',message:error.message});else{errorNode.textContent=error.message;errorNode.hidden=false;}}
   }
 

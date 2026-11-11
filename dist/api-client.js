@@ -124,6 +124,10 @@ async function send(path, { method = 'GET', body, headers = {}, timeout = 30000,
 }
 export function get(path) { return send(path); }
 
+export function postQuery(path, payload) {
+  return send(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+}
+
 /** The returned task owns an immutable body and idempotency key across retries. */
 export async function prepareMutation(path, payload, options = {}) {
   const context = workspaceContext;

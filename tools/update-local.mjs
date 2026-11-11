@@ -50,6 +50,7 @@ function compareVersion(a, b) { const aa = a.split('-')[0].split('.').map(Number
 
 // These files contain installation-specific settings that operators are asked to edit.
 const localWechatFiles = new Set(['apps/weapp/config/service.js', 'apps/weapp/utils/auth.js']);
+const desktopLaunchers = new Set(['start-linux.sh','start-macos.command']);
 const applicationIdentifiers = new Map([
   ['apps/weapp/project.config.json', ['appid', 'touristappid']],
   ['apps/mobile/capacitor.config.json', ['appId', 'com.example.sharedfabrication']],
@@ -165,7 +166,17 @@ export async function applyUpdate(options = {}) {
       const destination = path.join(plan.target, file.name);
       await fs.mkdir(path.dirname(destination), { recursive: true });
       const temporary = destination + '.gongzao-' + suffix + '.tmp';
-      try { await fs.writeFile(temporary, file.bytes, { flag: 'wx' }); await fs.rename(temporary, destination); completed.push(file); }
+      try {
+        await fs.writeFile(temporary, file.bytes, { flag: 'wx', mode: 0o600 });
+        if (process.platform !== 'win32') {
+          const mode = file.existed ? (await fs.stat(destination)).mode & 0o777 : 0o666 & ~process.umask();
+          // A ZIP extracted on Windows may lose execute bits. Restore them only on the two shipped launchers, for users already allowed to read them.
+          const launcherBits = desktopLaunchers.has(file.name) ? (mode & 0o444) >> 2 : 0;
+          await fs.chmod(temporary, mode | launcherBits);
+        }
+        await fs.rename(temporary, destination);
+        completed.push(file);
+      }
       finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
     }
     receipt.status = 'COMPLETE'; receipt.completedAt = new Date().toISOString(); await saveReceipt();

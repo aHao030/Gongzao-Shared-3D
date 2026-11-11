@@ -1,3 +1,8 @@
+import { readLimited, jsonResponse, readJsonObject } from './http-io.mjs';
+export { readLimited, jsonResponse } from './http-io.mjs';
+import { handleTradeRequest } from './trade-http.mjs';
+import { createTradeStore } from './trade-store.mjs';
+import { estimateBudget } from './budget-estimate.mjs';
 import { getCapabilities, getInquiries } from './inquiries.mjs';
 import { getMerchantPricing } from './pricing.mjs';
 import { getCustomerProfile } from './customer.mjs';
@@ -8,16 +13,24 @@ import { ApiError, ensure, analyzeModel } from './geometry.mjs';
 import { handleOperationsApi, handleProductionWorkerApi } from './operations-http.mjs';
 import { unconfiguredStatus } from '../integrations/catalog.mjs';
 
-const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
 const entryPaths = new Set(['/', '/index.html', '/login', '/login/', '/account/login', '/account/login/', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/']);
+const tradeEntryPaths = new Set(['/messages','/messages/','/merchant/messages','/merchant/messages/']);
 const adminEntryPaths = new Set(['/admin', '/admin/', '/admin/login', '/admin/login/']);
 export const isAdminEntryPath = pathname => adminEntryPaths.has(pathname);
-export const isAppEntryPath = pathname => entryPaths.has(pathname) || isAdminEntryPath(pathname);
+export const isAppEntryPath = pathname => entryPaths.has(pathname) || tradeEntryPaths.has(pathname) || isAdminEntryPath(pathname);
 export function appEntryAsset(pathname) {
+  if (tradeEntryPaths.has(pathname)) return '/trade.html';
   if (isAdminEntryPath(pathname)) return '/admin.html';
   return entryPaths.has(pathname) ? '/index.html' : pathname;
 }
-export function staticAssetResponse(body, contentType) {
+export function staticAssetResponse(body, contentType, pathname) {
+  if (body != null && (entryPaths.has(pathname) || tradeEntryPaths.has(pathname))) {
+    let html = typeof body === 'string' ? body : new TextDecoder().decode(body);
+    // The same trade shell is also served as a standalone file. Resolve its
+    // sibling assets at the origin root on routed pages, keeping # links local.
+    if (tradeEntryPaths.has(pathname)) html = html.replace(/(\b(?:src|href)=")\.\//g, '$1/');
+    body = html.replace('<head>', '<head><meta name="platform-routes" content="enabled">');
+  }
   return new Response(body, {headers: {
     'Content-Type': contentType, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'same-origin',
@@ -29,17 +42,7 @@ function customerFieldErrors(error) {
   if (!['INVALID_ADDRESS','INVALID_PROFILE','ADDRESS_INCOMPLETE'].includes(error.code) || !error.fieldErrors || typeof error.fieldErrors !== 'object' || Array.isArray(error.fieldErrors)) return {};
   return Object.fromEntries(Object.entries(error.fieldErrors).filter(([field,message]) => CUSTOMER_FIELDS.has(field) && typeof message === 'string' && message.length > 0 && message.length <= 300));
 }
-export async function readLimited(request,limit) {
-  const length=Number(request.headers.get('content-length'));
-  ensure(!Number.isFinite(length)||length<=limit,413,'BODY_TOO_LARGE','请求数据超过当前大小限制');
-  if(!request.body)return new Uint8Array();
-  const reader=request.body.getReader(),chunks=[];let size=0;
-  try { for(;;) {const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>limit){await reader.cancel();throw new ApiError(413,'BODY_TOO_LARGE','请求数据超过当前大小限制');}chunks.push(value);} }
-  finally {reader.releaseLock();}
-  const bytes=new Uint8Array(size);let at=0;for(const chunk of chunks){bytes.set(chunk,at);at+=chunk.byteLength;}return bytes;
-}
-export function jsonResponse(data,status=200,extra={}) {return new Response(JSON.stringify(data),{status,headers:{...JSON_HEADERS,...extra}});}
-export async function handleApi(request,{store,ownerId,userLabel='创作者',clock=Date.now,accountAuthenticated=true,workerAccess,integrations,adminControl}) {
+export async function handleApi(request,{store,ownerId,accountId,userLabel='创作者',clock=Date.now,accountAuthenticated=true,workerAccess,integrations,adminControl}) {
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
@@ -49,17 +52,34 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
     if (expectedContext !== null && path !== '/api/v2/session' && !path.startsWith('/api/v2/gateway/') && !path.startsWith('/api/v2/worker/')) {
       ensure(expectedContext === workspaceContext, 409, 'WORKSPACE_CHANGED', '当前账号已切换或会话已到期，请刷新后继续');
     }
+    const actor = accountSession && accountId && ownerId ? { id: accountId, ownerId } : null;
+    if (path.startsWith('/api/v2/trade/')) {
+      return await handleTradeRequest(request, {store, actor, clock, workspaceContext});
+    }
     if (path.startsWith('/api/v2/merchant/')) {
       ensure(accountSession && ownerId, 401, 'ACCOUNT_LOGIN_REQUIRED', '请先登录共造账号，再进入商家工作台');
     }
     if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess,adminControl});
     if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.4',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.5',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
     ensure(!origin||origin===url.origin,403,'CROSS_ORIGIN_DENIED','不接受其他网站的请求');
+    if (path === '/api/v2/budget-estimate') {
+      ensure(request.method === 'POST',405,'METHOD_NOT_ALLOWED','费用预估需要 POST 请求');
+      const inputs = await readJsonObject(request,4096);
+      if (Object.hasOwn(inputs,'shopId')) {
+        ensure(actor,401,'ACCOUNT_LOGIN_REQUIRED','请先登录后查看选定店铺的参考预算');
+        ensure(expectedContext === workspaceContext,409,'WORKSPACE_CHANGED','请刷新页面后查看店铺预算');
+        return jsonResponse(await createTradeStore({store,clock}).preview(actor,inputs));
+      }
+      const fields = new Set(['modelId','material','quality','qty','unit','capabilityId']);
+      ensure(Object.keys(inputs).every(key => fields.has(key)),400,'INVALID_CONFIGURATION','费用预估含有不支持的字段');
+      const estimate = estimateBudget(await store.load(ownerId),inputs,{now:clock()});
+      return jsonResponse({estimate});
+    }
     if(request.method==='GET'&&path==='/api/v2/markets') {
       const country = url.searchParams.get('country');
       ensure(country === null || /^(?:[A-Za-z]{2}|OTHER)$/.test(country),400,'INVALID_COUNTRY','请选择国家或地区，或填写两位国家或地区代码');

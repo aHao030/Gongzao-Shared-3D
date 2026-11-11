@@ -1,6 +1,12 @@
 # 共造版本日志
 
-点击版本号可浏览 GitHub 上该版本的代码快照。表中的提交号和北京时间来自原始 Git 历史。原始提交和 13 个附注标签保存在[完整 Git 历史包](history/Gongzao-Shared-3D.bundle)，[恢复说明](history/README.md)附有校验值。
+点击版本号可浏览 GitHub 上该版本的代码快照。表中的提交号和北京时间来自原始 Git 历史。原始提交和 13 个附注标签保存在[完整 Git 历史包](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/Gongzao-Shared-3D.bundle)，[恢复说明](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/README.md)附有校验值。
+
+## v0.9.5 · 2026-11-11
+
+模型预算支持整单、平均单件和人工核价。新增独立买卖双方的店铺咨询、分店授权的模型原件、未读消息、版本化商家报价与客户确认。原报价和订单沙盒继续独立运作。完整回归 546 项通过、8 项可选外部引擎测试跳过。两家店铺隔离、报价并发和升级验证见[专项质询记录](docs/TRADE_REVIEW_V0.9.5.md)。[浏览 v0.9.5 源码](https://github.com/aHao030/Gongzao-Shared-3D/tree/release/v0.9.5) · [恢复此版本附注标签](https://github.com/aHao030/Gongzao-Shared-3D/blob/main/history/v0.9.5.bundle)。
+
+## 历史版本
 
 | 版本标签 | 提交时间 | Git 提交 | 主要变更 |
 | --- | --- | --- | --- |

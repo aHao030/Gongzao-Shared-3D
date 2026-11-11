@@ -63,15 +63,37 @@ function batchDescription(quote) {
   const capacity = Number.isInteger(batch.capacityPerPlate) ? '，每板最多 ' + batch.capacityPerPlate + ' 件' : '';
   return '预计 ' + batch.plateCount + ' 板' + capacity + '；未执行真实排版或切片。';
 }
+function sampleRequest(spec) {
+  checkQuantity(spec.quantity);
+  const material = materialCodes[spec.materialIndex];
+  if (!material) throw new Error('请重新选择材料。');
+  return { modelId: 'sample-bracket', material, quality: 'standard', qty: Number(spec.quantity), unit: 'mm' };
+}
+async function getBudgetEstimate(spec) {
+  if (mode !== 'server') {
+    const error = new Error('模型预算需要连接服务端。当前为本机示例模式。');
+    error.code = 'SERVER_MODE_REQUIRED';
+    throw error;
+  }
+  if (!spec) throw new Error('请先选择示例模型和材料。');
+  const {estimate} = await remoteClient().getBudgetEstimate(sampleRequest(spec));
+  const range = (low, high) => low === high ? priceText(low / 100) : priceText(low / 100) + ' – ' + priceText(high / 100);
+  const estimated = estimate.status === 'ESTIMATED';
+  return {
+    estimated, sample: estimate.isSample === true, quantity: estimate.qty,
+    totalText: estimated ? range(estimate.lowCents, estimate.highCents) : '',
+    unitText: estimated ? range(estimate.unitLowCents, estimate.unitHighCents) : '',
+    includes: estimate.includes.join('、'), excludes: estimate.excludes.join('、'), explanation: estimate.explanation
+  };
+}
 async function getQuotes(spec) {
   if (!spec) return [];
   if (mode === 'local') return demo.getQuotes(spec).map(quote => Object.assign({}, quote, { priceText: priceText(quote.price) }));
   const generation = invalidateQuotes();
-  checkQuantity(spec.quantity);
+  const input = sampleRequest(spec);
   const { profile } = await remoteClient().getCustomerProfile();
   if (generation !== quoteGeneration) return [];
   if (!profile || !profile.shippingAddress) { const error = new Error('请先完善账号资料中的收货地址，再测算费用。'); error.code = 'ADDRESS_REQUIRED'; throw error; }
-  const input = { modelId: 'sample-bracket', material: materialCodes[spec.materialIndex], quality: 'standard', qty: spec.quantity, unit: 'mm' };
   const signature = JSON.stringify({ input, addressRevision: profile.addressRevision });
   const scope = config.API_BASE + ':quote:' + signature;
   const result = await remoteClient().getQuotes(input, retainedKey(scope));
@@ -134,4 +156,4 @@ async function listOrders() {
 }
 function advanceOrder(id) { if (mode !== 'local') throw new Error('服务端订单不能在本机推进。'); demo.advanceOrder(id); }
 function clearOrders() { if (mode !== 'local') throw new Error('服务端订单不能在本机清空。'); demo.clearOrders(); }
-module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getQuotes, createOrder, getCustomerProfile, getMarkets, saveCustomerProfile, listOrders, advanceOrder, clearOrders };
+module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getBudgetEstimate, getQuotes, createOrder, getCustomerProfile, getMarkets, saveCustomerProfile, listOrders, advanceOrder, clearOrders };

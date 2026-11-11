@@ -199,6 +199,28 @@
         if (!recordId(input.carrier) || !recordId(input.trackingNumber)) throw fail('SHIPMENT_REQUIRED', '请填写承运商标识和物流单号。');
         return request('POST', '/merchant/integrations/tracking', { carrier: input.carrier, trackingNumber: input.trackingNumber }, { 'Idempotency-Key': keyHeader(idempotencyKey) });
       },
+      async getBudgetEstimate(input) {
+        objectInput(input, 'BUDGET_INPUT_REQUIRED', '请选择模型和估算条件。');
+        const fields = ['modelId', 'material', 'quality', 'qty', 'unit', 'capabilityId'];
+        if (!recordId(input.modelId) || Object.keys(input).some(key => !fields.includes(key)))
+          throw fail('INVALID_BUDGET_INPUT', '预算请求仅接受模型、材料、质量、数量、单位和工艺配置。');
+        const result = await request('POST', '/budget-estimate', input);
+        const e = result.estimate;
+        const range = (a, b, min) => Number.isSafeInteger(a) && Number.isSafeInteger(b) && a >= min && b >= a;
+        if (!e || e.version !== 'model-budget-v1' || e.currency !== 'CNY' || e.payable !== false ||
+            e.shippingCents !== null || e.taxCents !== null || e.modelId !== input.modelId ||
+            e.qty !== (input.qty === undefined ? 1 : input.qty) || e.unit !== (input.unit || 'mm') ||
+            e.quality !== (input.quality || 'standard') || e.material !== (input.material || 'AUTO') ||
+            !['PLATFORM_REFERENCE', 'SHOP_CONFIG'].includes(e.source) || typeof e.explanation !== 'string' ||
+            ![e.includes, e.excludes].every(list => Array.isArray(list) && list.every(item => typeof item === 'string')))
+          throw fail('INVALID_RESPONSE', '预算摘要不完整或与当前条件不符，请重新获取。');
+        const prices = [e.lowCents, e.highCents, e.unitLowCents, e.unitHighCents];
+        const estimated = e.status === 'ESTIMATED' && ['GEOMETRY','MIXED','SLICER'].includes(e.basis) &&
+          range(e.lowCents, e.highCents, 1) && range(e.unitLowCents, e.unitHighCents, 0);
+        const manual = e.status === 'REVIEW_REQUIRED' && e.basis === 'MANUAL' && prices.every(n => n === null);
+        if (!estimated && !manual) throw fail('INVALID_RESPONSE', '服务端没有返回有效预算或核价状态。');
+        return result;
+      },
       async getQuotes(input, idempotencyKey) {
         const result = await request('POST', '/quotes', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });
         if (!Array.isArray(result.quotes)) throw fail('INVALID_RESPONSE', '报价响应缺少 quotes 列表。');

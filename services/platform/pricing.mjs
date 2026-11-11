@@ -1,4 +1,4 @@
-import { farms } from './catalog.mjs';
+import { farms, materials } from './catalog.mjs';
 import { ensure } from './geometry.mjs';
 
 export const PRICING_VERSION = 'batch-margin-sandbox-v2';
@@ -9,6 +9,11 @@ const safeMoney = n => Number.isSafeInteger(n) && n >= 0;
 // configured upper bounds, where multiplying cents in Number could lose bits.
 const ratioFloor = (n, multiplier, denominator) => Number(BigInt(n) * BigInt(multiplier) / BigInt(denominator));
 const ratioCeil = (n, multiplier, denominator) => Number((BigInt(n) * BigInt(multiplier) + BigInt(denominator) - 1n) / BigInt(denominator));
+// The customer-facing estimate and both quote paths use the same fee rule.
+export function platformFeeForManufacturing(manufacturingCents) {
+  ensure(safeMoney(manufacturingCents), 400, 'INVALID_PRICE', '制造费用超出允许范围');
+  return ratioCeil(manufacturingCents, 700, 10000);
+}
 const fieldRules = {
   machineCostCentsPerHour: [0, 100000, true],
   estimatedThroughputGramsPerHour: [0.1, 1000, false],
@@ -76,6 +81,9 @@ export function estimateBatch(dimensions, quantity, maxDimensions = [240, 240, 2
   const partsPerPlate = [];
   for (let left = quantity; left > 0; left -= capacityPerPlate) partsPerPlate.push(Math.min(left, capacityPerPlate));
   return { method: 'BOUNDING_BOX_GRID_ESTIMATE', plateSizeMm, usableSizeMm, spacingMm, edgeMarginMm, capacityPerPlate, plateCount: partsPerPlate.length, partsPerPlate, rotationDegrees: rotated > normal ? 90 : 0, verified: false, mixedOrders: false, waitForOtherOrders: false };
+}
+export function estimatePartWeightGrams(volumeCm3, material, quality) {
+  return volumeCm3 * materials[material].density * (quality === 'fine' ? 1.1 : 1);
 }
 export function estimateBatchPrice({ profile, batch, singleWeightGrams, quantity, quality }) {
   const hoursByPlate = batch.partsPerPlate.map(count => singleWeightGrams * count / profile.estimatedThroughputGramsPerHour * (quality === 'fine' ? 1.55 : 1) + profile.warmupMinutesPerPlate / 60);

@@ -1,3 +1,4 @@
+import { tradeReturnPath } from '../../dist/trade-return.js';
 import {randomBytes,randomUUID,createHash,scrypt as scryptCallback,timingSafeEqual} from 'node:crypto';
 import {promisify} from 'node:util';
 import {readFileSync} from 'node:fs';
@@ -73,7 +74,7 @@ function displayNameValue(value) {
 }
 function returnPath(value) {
   const allowed=new Set(['/','/merchant','/merchant/','/merchant/login','/account/login','/login','/admin','/admin/login']);
-  return typeof value==='string'&&allowed.has(value)?value:'/merchant';
+  return tradeReturnPath(value) || (typeof value==='string'&&allowed.has(value)?value:'/merchant');
 }
 
 export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) {
@@ -160,6 +161,7 @@ export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) 
     const url=new URL(request.url),pathname=url.pathname;
     if(!pathname.startsWith('/api/auth/'))return null;
     let callbackErrorPath = '/account/login';
+    let retryTarget = null;
     try {
       if(request.method==='GET'&&pathname==='/api/auth/config')return authJSON(config());
       if(request.method==='GET'&&pathname==='/api/auth/session')return authJSON(session(request));
@@ -183,6 +185,7 @@ export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) 
         if(!state||!/^[a-f0-9]{64}$/.test(state)||!browser)throw fail(400,'OIDC_FLOW_INVALID','登录请求已失效，请重新开始');
         const flow=db.prepare('DELETE FROM auth_oidc_flows WHERE state_hash=? AND browser_hash=? AND expires_at>? RETURNING *').get(digest(state),digest(browser),clock());
         if(!flow)throw fail(400,'OIDC_FLOW_INVALID','登录请求已失效，请重新开始');
+        retryTarget = tradeReturnPath(flow.return_path);
         if (['/admin', '/admin/login'].includes(flow.return_path)) callbackErrorPath = '/admin/login';
         const code=url.searchParams.get('code');
         if(url.searchParams.has('error')||typeof code!=='string'||!code||code.length>4096)throw fail(400,'OIDC_FAILED','第三方未完成授权，请重新开始');
@@ -249,7 +252,7 @@ export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) 
       }catch(error){db.exec('ROLLBACK');throw error;}
     }catch(error){
       if(pathname==='/api/auth/oidc/callback')return new Response(null,{status:302,headers:{
-        Location:callbackErrorPath+'?auth_error=OIDC_FAILED','Set-Cookie':clearCookie(FLOW_COOKIE),
+        Location:callbackErrorPath+'?auth_error=OIDC_FAILED'+(retryTarget?'&returnTo='+encodeURIComponent(retryTarget):''),'Set-Cookie':clearCookie(FLOW_COOKIE),
         'Cache-Control':'no-store','Referrer-Policy':'no-referrer'
       }});
       const known=error.status&&error.code;

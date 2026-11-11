@@ -1,3 +1,4 @@
+import { tradeInboxHref, hasPlatformRoutes } from '../dist/trade-return.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -8,7 +9,7 @@ import {safeAuthPath} from '../dist/auth-ui.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const authSource=(await readFile(new URL('../dist/auth-ui.js',import.meta.url),'utf8')).replaceAll('export function ','function ').replaceAll('export async function ','async function ');
-const merchantSource=(await readFile(new URL('../dist/merchant-ui.js',import.meta.url),'utf8')).replace(/^import .*\n/,'').replace('export function ','function ');
+const merchantSource=(await readFile(new URL('../dist/merchant-ui.js',import.meta.url),'utf8')).replace(/^import .*\n/gm,'').replace('export function ','function ');
 async function international(){const ui=createInternationalUI({get:async path=>{assert.equal(path,'/markets');return getMarketCatalog();},escape:esc});await ui.load();return ui;}
 const inputTag=(html,id)=>html.match(new RegExp('<(?:input|select)[^>]*id="'+id+'"[^>]*>'))?.[0];
 
@@ -87,7 +88,7 @@ test('auth navigation accepts only same-site paths',()=>{
 
 test('anonymous merchant cannot load protected APIs or see one-click enrollment',async()=>{
   let calls=0;
-  const context=vm.createContext({Date,Intl,Number,Set,Object,Math,location:{pathname:'/merchant/login',hash:''},document:{querySelector:()=>null,addEventListener(){}},window:{addEventListener(){},scrollTo(){}},history:{replaceState(){}},setTimeout,clearTimeout,get:async()=>{calls++;throw new Error('must not be called');},dependencies:{icon:()=>'',escape:esc,render(){},modal(){},closeModal(){},toast(){},legacyOrders:()=>'',connection:()=> 'online',session:()=>({}),auth:{state:{loaded:true},authenticated:()=>false,renderPanel:()=>'<h2>邮箱登录</h2>'}}});
+  const context=vm.createContext({tradeInboxHref,hasPlatformRoutes,Date,Intl,Number,Set,Object,Math,location:{pathname:'/merchant/login',hash:''},document:{querySelector:()=>null,addEventListener(){}},window:{addEventListener(){},scrollTo(){}},history:{replaceState(){}},setTimeout,clearTimeout,get:async()=>{calls++;throw new Error('must not be called');},dependencies:{icon:()=>'',escape:esc,render(){},modal(){},closeModal(){},toast(){},legacyOrders:()=>'',connection:()=> 'online',session:()=>({}),auth:{state:{loaded:true},authenticated:()=>false,renderPanel:()=>'<h2>邮箱登录</h2>'}}});
   vm.runInContext(merchantSource+'\nglobalThis.ui=createMerchantUI(dependencies);',context);await context.ui.load(false);
   assert.equal(calls,0);const html=context.ui.renderContent();assert.match(html,/邮箱登录/);assert.doesNotMatch(html,/merchant-name|data-merchant-action="enroll"/);
 });
