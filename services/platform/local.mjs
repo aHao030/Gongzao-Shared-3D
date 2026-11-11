@@ -7,11 +7,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SQLiteStore } from './store-sqlite.mjs';
 import { handleApi, jsonResponse } from './http.mjs';
 import { createLocalAuth, LEGACY_COOKIE } from './auth-local.mjs';
+import { loadWorkerAccess, readPrivateJSON } from './local-services.mjs';
+import { createIntegrationHub } from '../integrations/index.mjs';
 
 const defaultAssets=fileURLToPath(new URL('../../dist/',import.meta.url));
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
 const hash=value=>createHash('sha256').update(value).digest('hex');
-export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platform.sqlite',assetsDir=defaultAssets,clock=Date.now,authConfig,authFetch}={}) {
+export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platform.sqlite',assetsDir=defaultAssets,clock=Date.now,authConfig,authFetch,workerAccessConfig,integrationConfig,integrationHub,integrationFetch}={}) {
+  const workerAccess=loadWorkerAccess(workerAccessConfig);
+  const externalPath=process.env.GONGZAO_INTEGRATIONS_CONFIG||process.env.INTEGRATIONS_CONFIG;
+  const externalConfig=integrationConfig??readPrivateJSON(externalPath||'integrations.config.json',{optional:!externalPath})??{};
+  const integrations=integrationHub??createIntegrationHub({config:externalConfig,fetchImpl:integrationFetch});
   const store=new SQLiteStore(dbPath);
   const auth=createLocalAuth(store,{clock,authConfig,authFetch});
   const server=http.createServer({maxHeaderSize:16384,requestTimeout:30000},async(req,res)=>{
@@ -44,7 +50,7 @@ export function createPlatformServer({dbPath=process.env.DATA_PATH||'data/platfo
           const fresh=randomBytes(32).toString('hex');ownerId='local_'+randomUUID();store.saveSession(hash(fresh),ownerId,clock()+30*86400000);
           setCookie=LEGACY_COOKIE+'='+fresh+'; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000'+(base.startsWith('https:')?'; Secure':'');
         }
-        const response=await handleApi(request,{store,ownerId,userLabel:account?.display_name||'本地沙盒账户',clock});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
+        const response=await handleApi(request,{store,ownerId,userLabel:account?.display_name||'本地沙盒账户',clock,accountAuthenticated:Boolean(account),workerAccess,integrations});if(setCookie)response.headers.set('Set-Cookie',setCookie);return reply(response);
       }
       if(!['GET','HEAD'].includes(req.method))return reply(new Response('Method not allowed',{status:405}));
       const entryPaths=new Set(['/','/login','/login/','/account/login','/account/login/','/merchant','/merchant/','/merchant/login','/merchant/login/']);
@@ -60,6 +66,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   const args=process.argv.slice(2),option=name=>args.includes(name)?args[args.indexOf(name)+1]:undefined;
   const port=Number(option('--port')||process.env.PORT||3000),host=option('--host')||'127.0.0.1';
   if(!Number.isInteger(port)||port<1||port>65535||!['127.0.0.1','0.0.0.0'].includes(host))throw new Error('Invalid local host/port');
-  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.8 沙盒 http://127.0.0.1:${port} · SQLite 数据持久化 · 模型询价与方案确认 · 不执行真实打印或付款`));
+  const {server,store}=createPlatformServer();server.listen(port,host,()=>console.log(`共造 v0.9 沙盒 http://127.0.0.1:${port} · 模型询价、制造计算与生产中心 · 不执行真实打印或付款`));
   const stop=()=>server.close(()=>{store.close();process.exit(0);});process.on('SIGTERM',stop);process.on('SIGINT',stop);
 }

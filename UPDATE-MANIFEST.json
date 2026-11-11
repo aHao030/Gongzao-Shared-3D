@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "project": "gongzao-shared-fabrication",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "files": [
     {
       "path": ".dockerignore",
@@ -15,8 +15,8 @@
     },
     {
       "path": ".gitignore",
-      "bytes": 422,
-      "sha256": "214afd01dce6cd9f52b91f749d96b6998001b3bc38bdc074d53f61038fc3a4f0"
+      "bytes": 586,
+      "sha256": "025dc29c11fdc27393bbe55b3c285d23aa39c2d746b2d476e365457b55c8829b"
     },
     {
       "path": "Dockerfile",
@@ -25,8 +25,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 12372,
-      "sha256": "2ec8e3c8ae761a34d3348fc0445873a4ed187526e5cd7fe04ee6c2833745a709"
+      "bytes": 6689,
+      "sha256": "7bb382a9d9ecfc536b71bfdb0a0177c9777e0160d56fd2233784179a5d71eda6"
     },
     {
       "path": "START-WINDOWS.cmd",
@@ -130,8 +130,8 @@
     },
     {
       "path": "apps/shared/api-client.js",
-      "bytes": 14898,
-      "sha256": "f35615df16742677e25b91d7490602e20c57191e064af8462cdcb3c5d3fb16e4"
+      "bytes": 17290,
+      "sha256": "adac6774be91984d02d0d006dc2c25deff64c0fd3c245a271569501ad5ac2678"
     },
     {
       "path": "apps/shared/client-config.example.json",
@@ -320,8 +320,8 @@
     },
     {
       "path": "apps/weapp/utils/api-client.js",
-      "bytes": 14980,
-      "sha256": "68825a505e994099789e286cc6f19e1ee9b1f4c0d384a921dd2fce2ccd5dc0e4"
+      "bytes": 17372,
+      "sha256": "2f125d3ddce767b9ab525b040e54bf4a2dab0e4e54e72cc6dca22b1fb850b1ca"
     },
     {
       "path": "apps/weapp/utils/auth.js",
@@ -349,6 +349,11 @@
       "sha256": "275081281cd86220f871833bb14b30653adc38bf7d08183b4f00c3b0968a3868"
     },
     {
+      "path": "compose.integrations.yaml",
+      "bytes": 1296,
+      "sha256": "8a7c7b4116320efbdb3c8450195441d9d80b5744b43e0e58344e70306b73315f"
+    },
+    {
       "path": "compose.yaml",
       "bytes": 294,
       "sha256": "87c2e47005f66341b8c63865c6741c1c5a10f4526ff7e9592a0b7247f9a018df"
@@ -370,8 +375,8 @@
     },
     {
       "path": "dist/app.js",
-      "bytes": 92280,
-      "sha256": "0519dd5438f3f81ad3b741b34814bc80b9a641c0bf8cacecc0317d79dca44892"
+      "bytes": 93495,
+      "sha256": "0cd0743a65537839a07e4e728afe2c92a43a57654b45c0b4a9c80050fbd9bdc0"
     },
     {
       "path": "dist/auth-ui.js",
@@ -400,18 +405,23 @@
     },
     {
       "path": "dist/merchant-ui.js",
-      "bytes": 39665,
-      "sha256": "acd5a8917e62bb00ec4d3191da9eabfad3a6bcb996b7187934e5feccde77e440"
+      "bytes": 40526,
+      "sha256": "c36d4faa216fc6a747d457cf3e4334e67d8cbc7a53d2c4b9d2356f5c6015afab"
+    },
+    {
+      "path": "dist/operations-ui.js",
+      "bytes": 43195,
+      "sha256": "5fefa8f5277b826e57ef848f92813e890eac1bd20ab9366ea20c616a5ac61c04"
     },
     {
       "path": "dist/styles.css",
-      "bytes": 82826,
-      "sha256": "f97a94f17c4f928523eaad5479f9e4917433709559b3b5fd297fc5382dfabd1d"
+      "bytes": 91619,
+      "sha256": "a7aab1285b5d161422a0921f7b1c927e7daec7e6beb611776cb324d6eef70c88"
     },
     {
       "path": "dist/sw.js",
-      "bytes": 1220,
-      "sha256": "3e552e7c16552b7268f731d47166ae0e8e9119a19ae858180449fdce163ac54d"
+      "bytes": 1241,
+      "sha256": "7d8ff330a8845feebdef65eeb73b9075e07853abd742d476c96b19b0a5ec6b02"
     },
     {
       "path": "dist/workflow-ui.js",
@@ -450,8 +460,8 @@
     },
     {
       "path": "docs/DEPLOYMENT.md",
-      "bytes": 13233,
-      "sha256": "ac6fc5f67a5d2af25cb86cbade55059ac2682f25c39dfbf8ef08af0d8b827519"
+      "bytes": 13467,
+      "sha256": "2925500a627cc5b33fcbe5815292e8e1da669ec0aa3bf139f4877d8cb4bb217a"
     },
     {
       "path": "docs/DESIGN_SYSTEM.md",
@@ -469,6 +479,11 @@
       "sha256": "840e9a72cb654593054831b3f4fb6585b2c0393bc05d02484607325e5511a370"
     },
     {
+      "path": "docs/IDENTITY_V0.9.md",
+      "bytes": 6897,
+      "sha256": "41cf764373d70a623148fc36faa21c8970456e95177ebb94f3051cb7231b6a08"
+    },
+    {
       "path": "docs/IMPLEMENTATION_V0.2.md",
       "bytes": 13981,
       "sha256": "e419ff3960ee6d6744d15412ca87db764a7b3591b2b800b218243928c59ad4d7"
@@ -479,9 +494,19 @@
       "sha256": "6494ce15d81cb709659246d4b46c3437cf3d758733d5e347e4f0c1c1013cbbee"
     },
     {
+      "path": "docs/INTEGRATIONS_V0.9.md",
+      "bytes": 10813,
+      "sha256": "311710a1bea272ebcfe1f35b6188df393d83e1a30524c4702a7a7b44ad79ee08"
+    },
+    {
       "path": "docs/INTERNATIONAL_AUTH_V0.7.md",
       "bytes": 6501,
       "sha256": "150203e33f36985700b0fa8c916eed84b1cd4281a0769e8186811b0049f1c38e"
+    },
+    {
+      "path": "docs/MANUFACTURING_WORKER_V0.9.md",
+      "bytes": 9988,
+      "sha256": "cec298353061586a7a6ea5ca82875a9f5997680cb4f8be1c068509da73231ed6"
     },
     {
       "path": "docs/MERCHANT_GUIDE.md",
@@ -499,14 +524,24 @@
       "sha256": "8ce0f809c53f8df2b1c2fc99aab9a35208501c7ee6a7a4c637e9c6562d524ec8"
     },
     {
+      "path": "docs/OPERATIONS_CONTRACT_V0.9.md",
+      "bytes": 9197,
+      "sha256": "7e995abffc00bec4fbf8c4ce23e0d7cc9bc58f0c38a7ee49f7b63dc91365efd2"
+    },
+    {
       "path": "docs/PAYMENTS_DESIGN_V0.4.md",
       "bytes": 22045,
       "sha256": "8c066d98dd8e8792cdcf8b2640f62bc592ca557f8c5266ed1c263939f88a24cc"
     },
     {
       "path": "docs/PRODUCTION_READINESS.md",
-      "bytes": 6814,
-      "sha256": "e806e38943353576495a18b55b4500aad850f72bc5562445571a6d8ce1b488ea"
+      "bytes": 7151,
+      "sha256": "0ba7ed8afca667c86473a20997677d787182ed80c8502614428bf3d8b685b82c"
+    },
+    {
+      "path": "docs/RELEASE_V0.9.md",
+      "bytes": 3806,
+      "sha256": "5ddacd09a3b522f5c58f0457d8c97b4d798eef15547ef22ac9ea45d1064b2653"
     },
     {
       "path": "docs/SOURCES.md",
@@ -515,8 +550,13 @@
     },
     {
       "path": "docs/TASK_LOG.md",
-      "bytes": 8729,
-      "sha256": "07bbc1bacd307c6e870de6e54d38c645454cb9e354644a83097fce79e598338a"
+      "bytes": 9291,
+      "sha256": "d3f038551a6dd1ca83113ce478f17c6ec480744c0c3712fbf0b31a776fb1d9a7"
+    },
+    {
+      "path": "docs/THIRD_PARTY_V0.9.md",
+      "bytes": 2298,
+      "sha256": "0768722ccd870919f36587a972a643a9cdd5a4894b8bcde32f2841ba5f175fdb"
     },
     {
       "path": "docs/UPDATE_WINDOWS_V0.7.md",
@@ -527,6 +567,11 @@
       "path": "docs/UPDATE_WINDOWS_V0.8.md",
       "bytes": 3334,
       "sha256": "4db5af6ad4938b97bbf7431679f1317e36a5fa8b859ac8db70f20463d3d7dd9e"
+    },
+    {
+      "path": "docs/UPDATE_WINDOWS_V0.9.md",
+      "bytes": 1655,
+      "sha256": "847fbf8542678ee79ea909ebfaadc136f714a0cedb6d318a4095bd3bf3e653df"
     },
     {
       "path": "docs/UPGRADE_V0.5.md",
@@ -540,8 +585,8 @@
     },
     {
       "path": "docs/VALIDATION.md",
-      "bytes": 19792,
-      "sha256": "44a1c53b81b3d6273235d32294e4bfe6fcba27412137458ccda72fe5630f472d"
+      "bytes": 23460,
+      "sha256": "15d1628ab911864b1a62a45c61b150ca6705ee91f2d504cf3afe9bc8df1f1c19"
     },
     {
       "path": "docs/acceptance-v0.5.png",
@@ -606,12 +651,12 @@
     {
       "path": "package-lock.json",
       "bytes": 50752,
-      "sha256": "fc30abc4d31d167a6644773249bb5f225b2ca4914f24ff1f414e7e19aeabfc8e"
+      "sha256": "f03229cf7096cd31f3e3b60314852438f8d71f39db94166c2ac97337433eccad"
     },
     {
       "path": "package.json",
-      "bytes": 814,
-      "sha256": "cfc9072a04c5a68f7390117d46c570becac676e45db8e45172728142ed6e74d7"
+      "bytes": 1060,
+      "sha256": "8e743299589367e86dae7e4f5cc5b512b1bcc6c2e714c42691e902f915ead96c"
     },
     {
       "path": "packages/domain/index.mjs",
@@ -669,19 +714,139 @@
       "sha256": "c55b89d380c3d7d7e6030d590968f2d2c50b8defc6259ece6a55d032a631c24f"
     },
     {
+      "path": "services/identity/auth.keycloak.example.json",
+      "bytes": 407,
+      "sha256": "872535bb60fe53aff462268543682961bc270327a6feab8824121863849894c2"
+    },
+    {
+      "path": "services/identity/authorization.mjs",
+      "bytes": 2122,
+      "sha256": "5278d6b31937b808df8dde1672345d6f8ddbe163fd3be00355da5a1b00cfede9"
+    },
+    {
+      "path": "services/identity/compose.production.example.yaml",
+      "bytes": 1230,
+      "sha256": "8893dfd3aa98b9bf32dbef221aa6f6085307483b720aaac7fe628cb25c4bcfae"
+    },
+    {
+      "path": "services/identity/compose.yaml",
+      "bytes": 496,
+      "sha256": "3f90351ac0b07bc401919c1f06f612bea6ecb1e72bedde7aa13b3701d550b414"
+    },
+    {
+      "path": "services/identity/keycloak-realm.template.json",
+      "bytes": 1593,
+      "sha256": "450095ba33d2bfc30a3544b9cdc3ada54dc96e2f7de3886bc1a0a89571571f8e"
+    },
+    {
+      "path": "services/identity/setup.mjs",
+      "bytes": 3890,
+      "sha256": "d7bd4608de7cdf005743a4b14c050e943da87c4768cfdde9a62ddb054239fa5d"
+    },
+    {
+      "path": "services/integrations/bullmq.mjs",
+      "bytes": 2297,
+      "sha256": "4b9dd888091fd52abdbab747f0ec5a99b75589cb2e4bd9ec03c33d0559298d6f"
+    },
+    {
+      "path": "services/integrations/catalog.mjs",
+      "bytes": 1396,
+      "sha256": "592d9407eb407a8362336edfd15a7a8e4588ead5ce26683bed1cffe6cfbc771d"
+    },
+    {
+      "path": "services/integrations/cli.mjs",
+      "bytes": 1025,
+      "sha256": "31263a15f71e880962465f5f15bca75634fe6833dedee2048ce7d4acb7a7a376"
+    },
+    {
+      "path": "services/integrations/config.example.json",
+      "bytes": 624,
+      "sha256": "9f1899dd18ba37ac1fe1a42a844dbd0cfaf7b0b7d799dbfbf8f825c4937a7442"
+    },
+    {
+      "path": "services/integrations/config.mjs",
+      "bytes": 4839,
+      "sha256": "d131aaadfa988d6a9b16f07ed03430b12529a93991dabb3f1fac568ffde1cb5b"
+    },
+    {
+      "path": "services/integrations/index.mjs",
+      "bytes": 17493,
+      "sha256": "b40d87d9c8c8bbef17d0e5bc798e9e473c70e1c6b76c65a7df2382a062262401"
+    },
+    {
+      "path": "services/integrations/journal.mjs",
+      "bytes": 4101,
+      "sha256": "865d9157f97ca75930dcd221ee6a9cfc4c2c9501748ea62cf38f40ff7db63275"
+    },
+    {
+      "path": "services/integrations/package-lock.json",
+      "bytes": 8383,
+      "sha256": "9ca8d46cf4a86bb4b2e6b114d2f996d6dfef107c77313a1bb07296f692cc6ec1"
+    },
+    {
+      "path": "services/integrations/package.json",
+      "bytes": 268,
+      "sha256": "59801c56afb2a9a01193ee01b501af91d0a8605b4ee3fe0fd391d6738e47056e"
+    },
+    {
+      "path": "services/integrations/transport.mjs",
+      "bytes": 4630,
+      "sha256": "5678c57cfda159674926cf8669c935c399ecdd721ff7501916c93b8a638d050d"
+    },
+    {
+      "path": "services/manufacturing-worker/Dockerfile",
+      "bytes": 813,
+      "sha256": "556778474fef2bd7ee08a2a6018a6f3e08c836f7df34d9a8b20b591e63ca1bd2"
+    },
+    {
+      "path": "services/manufacturing-worker/cli.mjs",
+      "bytes": 3158,
+      "sha256": "db353a2a35865f0d37bfdaad48c598502db555c072f6593ea94d159819698b32"
+    },
+    {
+      "path": "services/manufacturing-worker/client.mjs",
+      "bytes": 14911,
+      "sha256": "305a6f0178db22c6c3109a892d8cf7c99e1db94b9f05246ae96d6a62f182b2b8"
+    },
+    {
+      "path": "services/manufacturing-worker/compose.example.yaml",
+      "bytes": 446,
+      "sha256": "00c61bebb9c97c14d2dc87996a2e539431afa2631971d64def0293fa83ad424d"
+    },
+    {
+      "path": "services/manufacturing-worker/config.example.json",
+      "bytes": 378,
+      "sha256": "d754edddf6cb3739676f7d864f4d781a7d476bbe6499ad83e7bf30a6f0d43945"
+    },
+    {
+      "path": "services/manufacturing-worker/engine.py",
+      "bytes": 19689,
+      "sha256": "014a3e628a304657493acdd986c5830a0b839f263180892498e9979ed70a42d9"
+    },
+    {
+      "path": "services/manufacturing-worker/profiles/README.md",
+      "bytes": 895,
+      "sha256": "05bcc66af46fce59afc473d21565444c54b6fc203daac776afc68df853f2d0d6"
+    },
+    {
+      "path": "services/manufacturing-worker/requirements.txt",
+      "bytes": 307,
+      "sha256": "b3ab775320566c7b37b8d0f3a2e7715452d797c0f89473a042cb994eebe13961"
+    },
+    {
       "path": "services/platform/auth-config.mjs",
-      "bytes": 3082,
-      "sha256": "ae137e9f5d87e47fbe7fe7dfe593367c538079503df20b509c39c611e1a1f689"
+      "bytes": 3826,
+      "sha256": "fff25e9616ceb13363f8390767dbaa89b085d9415600f2504aee58f32dd150cb"
     },
     {
       "path": "services/platform/auth-local.mjs",
-      "bytes": 16305,
-      "sha256": "824f502ed49b3445b80ed19ef545c7e1388706449c204d2b4c428270edd05948"
+      "bytes": 17201,
+      "sha256": "209a5479654307535608c33062b8868d8d995c9e106f498d6e5e9f14a071124d"
     },
     {
       "path": "services/platform/auth-oidc.mjs",
-      "bytes": 13796,
-      "sha256": "a9bf6c8607f735bafa171c1c21baf8f6da96e29e41d343791b2183f3779da7d4"
+      "bytes": 15411,
+      "sha256": "1dfa29d7ab663b2cddb6952e763c1ca06985704e608e973f684a9122dbc6187d"
     },
     {
       "path": "services/platform/catalog.mjs",
@@ -690,8 +855,8 @@
     },
     {
       "path": "services/platform/core.mjs",
-      "bytes": 37122,
-      "sha256": "bd88c84eaca365da19bc0c5f680b5fb84c414d6d8650f428ce2d0487c00d87c7"
+      "bytes": 40714,
+      "sha256": "e212bcc686a7bd93af9b3a43df5a2b2b5b466fe6f1992cb79d555c337acca51f"
     },
     {
       "path": "services/platform/customer.mjs",
@@ -705,8 +870,8 @@
     },
     {
       "path": "services/platform/http.mjs",
-      "bytes": 7419,
-      "sha256": "e4b66429e32100d2003ec9ee0016754f3e0371188cc695eca597013418a89bac"
+      "bytes": 8102,
+      "sha256": "9a20a7533172c1549c7766314dc20fe67ef38678cc08ed5d67f885b0b1a3502b"
     },
     {
       "path": "services/platform/inquiries.mjs",
@@ -714,9 +879,14 @@
       "sha256": "e81966cc356d0bf978499b3135d947242c8c7a8d81083f904e9e6105caa2391e"
     },
     {
+      "path": "services/platform/local-services.mjs",
+      "bytes": 918,
+      "sha256": "d24ef8ec67edab54b59943bd92ec6197852f3ba08beae3c17ce4865776d0ad05"
+    },
+    {
       "path": "services/platform/local.mjs",
-      "bytes": 6062,
-      "sha256": "f8c5ca87bb408d878935723992f6db79564ac9f8a7076119a7b1e876d4575129"
+      "bytes": 6719,
+      "sha256": "e327c74ec289abce2b8bb6bd2696f8b1c6bca49dfc26eacf2979fa824e38b968"
     },
     {
       "path": "services/platform/market.mjs",
@@ -732,6 +902,16 @@
       "path": "services/platform/merchant.mjs",
       "bytes": 22641,
       "sha256": "9e61a725a27455f3f0cca06b92bcf68a8101398ae35eedc96be59ca648dd03c2"
+    },
+    {
+      "path": "services/platform/operations-http.mjs",
+      "bytes": 10416,
+      "sha256": "6c07906df6e92c694220435e64fd0fbd46bde2ff609b0d513329ec7beafba0b6"
+    },
+    {
+      "path": "services/platform/operations.mjs",
+      "bytes": 41561,
+      "sha256": "6a0204b759f49735cd5b1f843dcda0fef4dd75cd99499a824cdafd1c426f9a2c"
     },
     {
       "path": "services/platform/pricing.mjs",
@@ -752,6 +932,11 @@
       "path": "services/platform/store-sqlite.mjs",
       "bytes": 3240,
       "sha256": "5671a6c91b8b0c45ef8f648a64acbb80ace81dbd442483c97bf6be1d171a12bd"
+    },
+    {
+      "path": "services/platform/worker-access.mjs",
+      "bytes": 2700,
+      "sha256": "9fb51ecdffcde147beb7bbb0ada2fea4440b27da8a4943cbb597b5f2bcf21ed2"
     },
     {
       "path": "services/platform/worker.mjs",
@@ -829,6 +1014,16 @@
       "sha256": "2413013381d061f7bfc2e19477bc60dfd07e2b08186f468c9b66dafd361e488f"
     },
     {
+      "path": "tests/identity-v9.test.mjs",
+      "bytes": 13133,
+      "sha256": "13e1ad11bcda328afc41cb45536646e25c5ae1abd9c1df6ae59ab6c966b773ef"
+    },
+    {
+      "path": "tests/integrations-v9.test.mjs",
+      "bytes": 17113,
+      "sha256": "60516a49ba35dcf1f5074c475f446ef8e8fac22db85d252c4b3c7b154615f0fb"
+    },
+    {
       "path": "tests/international-http-v7.test.mjs",
       "bytes": 11186,
       "sha256": "293af73548989f713efe1d8471e0c75b404ed947ee7e29045316f49e3762fccb"
@@ -844,6 +1039,11 @@
       "sha256": "e478a73751e7c3157b7ccc17c718b702f7ab6daf6d7c9526b1d31c795ab815a0"
     },
     {
+      "path": "tests/manufacturing-worker-v9.test.mjs",
+      "bytes": 14094,
+      "sha256": "dafd4fbe899738005da2d718ba69dcbad3a6f588cd6f8235787d269df34c6c77"
+    },
+    {
       "path": "tests/merchant-core.test.mjs",
       "bytes": 12153,
       "sha256": "0cb720535d5bb06dafe2772ccb703cd7d648feaa25302abf6e9962f6455aec96"
@@ -852,6 +1052,16 @@
       "path": "tests/merchant-gateway-e2e.test.mjs",
       "bytes": 18066,
       "sha256": "878e3bd4fca509489d1bc5293683e699474432ab6c1abaf4dd68fe7bc57bcc26"
+    },
+    {
+      "path": "tests/operations-ui-v9.test.mjs",
+      "bytes": 12789,
+      "sha256": "856148f719ca2105696400c9c8963f8e341a3b2f86062f6abffafe265bc5ea57"
+    },
+    {
+      "path": "tests/operations-v9.test.mjs",
+      "bytes": 12495,
+      "sha256": "51f4548acf2f43f0b3443e7daa72df34c4590718cd8e1cb1f51086fb48fdf1fb"
     },
     {
       "path": "tests/platform-core.test.mjs",
@@ -894,14 +1104,49 @@
       "sha256": "691016882db495e24197b2a3e60aa26026d0894fe73925ea090a7342b10c5787"
     },
     {
+      "path": "tests/sliced-pricing-v9.test.mjs",
+      "bytes": 11272,
+      "sha256": "80d3c831af90c7cbbecbe19b1a23fc36a242d2b545a688549ba08599bfd9cd79"
+    },
+    {
       "path": "tests/ui-workflow-v5.test.mjs",
       "bytes": 6263,
       "sha256": "eff50a0e87f5e1d6a4c88f66c225a4bc2e338e6cf70d6727e613cd832560c70a"
     },
     {
+      "path": "tests/v9-review-http.test.mjs",
+      "bytes": 11044,
+      "sha256": "aee819f66e12eeaccee2faa66cf9fe05026164da4aa83ec57c8d4d644a435431"
+    },
+    {
+      "path": "tests/v9-review-operations.test.mjs",
+      "bytes": 15147,
+      "sha256": "9a62e910cc7d3f7cec8b1dcc897690b4e18d8ce2e5c184eae98c3139ca8fdf2a"
+    },
+    {
+      "path": "tests/v9-review-sync-spools.test.mjs",
+      "bytes": 7959,
+      "sha256": "3c914deb0ce73234ddb4cd8f84d2cb788713dfa8914be417b768b75fdcd6ab23"
+    },
+    {
+      "path": "tests/v9-review-update.test.mjs",
+      "bytes": 3819,
+      "sha256": "4a2c1e98bfbe3e353cf1b9fee99a29785a5ec2af20c6d0386b3c7ff0b180c998"
+    },
+    {
+      "path": "tests/v9-review-worker-access.test.mjs",
+      "bytes": 4437,
+      "sha256": "8213892e82173cd61c430741d4028eabd3d77361c9533feaa9e549d7d54698d7"
+    },
+    {
       "path": "tests/windows-update-v7.test.mjs",
       "bytes": 8412,
       "sha256": "6f725f65d90df9fad7ce04c0a079e06ee15eb8d6c98fe6933b512e47b748e2f7"
+    },
+    {
+      "path": "tests/worker-platform-v9.test.mjs",
+      "bytes": 4837,
+      "sha256": "50fd0609c46891fec0dc5e8396fcd222dd2b724bf4cf4866e8a52f61dc391061"
     },
     {
       "path": "tests/workflow-http-v5.test.mjs",
@@ -944,9 +1189,14 @@
       "sha256": "781b07f287885905ce09d90ce522a9e30c7d9b5fb4499a838f827d25f25ee3fd"
     },
     {
+      "path": "tools/create-worker-config.mjs",
+      "bytes": 2539,
+      "sha256": "b7a272487ac0e3bfe6c4eb22f8b0fac570e9abb4a5c87c1121a371f87a488811"
+    },
+    {
       "path": "tools/launch-local.mjs",
       "bytes": 4125,
-      "sha256": "da27dd49bcd51a12fd95c02c98ad877f7bd59b4512724bb811e7ad9c2347210b"
+      "sha256": "c5c5fb49a656157f289ce24a6a437f048d05d815588e48300e73831040109ef8"
     },
     {
       "path": "tools/load-smoke.mjs",
@@ -960,8 +1210,8 @@
     },
     {
       "path": "tools/update-local.mjs",
-      "bytes": 10159,
-      "sha256": "6a9313ac82f21540ab99a02e65bc6ebc083ea29abb5f4015e94e31b71907c963"
+      "bytes": 10340,
+      "sha256": "713a3fc0d62d16faf5893f5930bfbff8dadfd9dd1f266171ebabc2edf66a18c2"
     },
     {
       "path": "tools/update-windows.ps1",

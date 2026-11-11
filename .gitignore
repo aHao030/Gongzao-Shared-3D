@@ -28,3 +28,12 @@ gateway-config*.json
 # Server-only authentication configuration
 auth.config.json
 auth.config.local.json
+
+# Private production-worker and provider credentials
+worker-access.config.json
+worker.config.json
+integrations.config.json
+*.local.json
+.venv*/
+__pycache__/
+*.pyc

@@ -13,18 +13,24 @@ export function authJSON(value, status=200, extra={}) {
 
 export function publicAuthConfig(mode, oidc=null) {
   const hosted=mode==='HOSTED_PLATFORM';
+  const keycloak=!hosted&&oidc?.adapter==='keycloak'&&Boolean(oidc?.providers?.keycloak);
+  const providers=keycloak?[...AUTH_PROVIDERS,{id:'keycloak',label:'统一账号'}]:AUTH_PROVIDERS;
   return {
     mode,
     emailPassword:{enabled:!hosted,registrationEnabled:!hosted,emailVerification:false,passwordReset:false,minPasswordLength:12,maxPasswordLength:128},
     platform:{enabled:hosted,signInUrl:hosted?'/signin-with-chatgpt':null,signOutUrl:hosted?'/signout-with-chatgpt':null},
-    providers:AUTH_PROVIDERS.map(provider=>{
+    identityService:{enabled:keycloak,provider:keycloak?'keycloak':null,accountRecovery:keycloak?'IDENTITY_PROVIDER':'NOT_CONFIGURED',mfa:keycloak?'IDENTITY_PROVIDER_POLICY':'NOT_CONFIGURED'},
+    accessBoundary:{mode:'OWNER_WORKSPACE',crossMerchantMarketplace:false,merchantEnrollmentRequired:true},
+    providers:providers.map(provider=>{
       const enabled=!hosted&&Boolean(oidc?.providers?.[provider.id]);
       return {...provider,enabled,status:enabled?'CONFIGURED':'NOT_CONFIGURED',
         authorizationPath:enabled?'/api/auth/oidc/start?provider='+provider.id:null};
     }),
     notice:hosted
       ?'此托管站点通过平台身份验证。微信、支付宝、X、Apple、QQ、Google 独立账号登录需要在独立部署中配置官方应用与身份服务，目前未开通。'
-      :'本地沙盒账号使用邮箱与密码登录；QQ 邮箱、Gmail 和其他邮箱均可注册。邮箱尚未验证，找回密码和邮件验证尚未配置。第三方账号仅在管理员完成身份服务配置后可用。'
+      :keycloak
+        ?'统一账号由已配置的身份服务管理；其邮件验证、密码找回和多因素认证按管理员策略执行。本机邮箱账号仍独立保存，尚未接入邮件验证和找回。第三方渠道需单独配置。'
+        :'本地沙盒账号使用邮箱与密码登录；QQ 邮箱、Gmail 和其他邮箱均可注册。邮箱尚未验证，找回密码和邮件验证尚未配置。第三方账号仅在管理员完成身份服务配置后可用。'
   };
 }
 

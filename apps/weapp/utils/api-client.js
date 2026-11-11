@@ -161,6 +161,36 @@
         recordResponse(result, 'inquiry');
         return recordResponse(result, 'order');
       },
+      async getOperations() {
+        const result = await request('GET', '/merchant/operations');
+        if (result.schemaVersion !== 1 || !['spools', 'profiles', 'jobs', 'productions', 'models', 'orders', 'devices'].every(key => Array.isArray(result[key])))
+          throw fail('INVALID_RESPONSE', '生产工作台响应不完整。');
+        return result;
+      },
+      async operationsCommand(type, payload, idempotencyKey) {
+        const allowed = ['save-spool', 'set-spool-cost', 'save-profile', 'queue-job', 'cancel-job', 'create-production', 'readiness', 'dispatch-production', 'finish-production', 'qc-production', 'cancel-production', 'reconcile-production', 'schedule'];
+        if (!allowed.includes(type)) throw fail('OPERATIONS_COMMAND_NOT_ALLOWED', '此客户端不允许后台任务领取或回传。');
+        objectInput(payload, 'OPERATIONS_PAYLOAD_REQUIRED', '请提供生产操作参数。');
+        return request('POST', '/merchant/operations/commands', { type, payload }, { 'Idempotency-Key': keyHeader(idempotencyKey) });
+      },
+      async getIntegrationStatus() {
+        const result = await request('GET', '/merchant/integrations');
+        if (!Array.isArray(result.services)) throw fail('INVALID_RESPONSE', '服务连接响应缺少服务列表。');
+        return result;
+      },
+      async probeIntegration(service, idempotencyKey) {
+        if (!['spoolman', 'fdmMonster', 'obico', 'karrio', 'hyperswitch', 'moonraker', 'octoprint'].includes(service))
+          throw fail('INTEGRATION_NOT_ALLOWED', '请选择平台支持的连接服务。');
+        return request('POST', '/merchant/integrations/probe', { service }, { 'Idempotency-Key': keyHeader(idempotencyKey) });
+      },
+      async observeExternalSpools(idempotencyKey) {
+        return request('POST', '/merchant/integrations/sync-spools', {}, { 'Idempotency-Key': keyHeader(idempotencyKey) });
+      },
+      async observeShipment(input, idempotencyKey) {
+        objectInput(input, 'SHIPMENT_REQUIRED', '请提供承运商和运单。');
+        if (!recordId(input.carrier) || !recordId(input.trackingNumber)) throw fail('SHIPMENT_REQUIRED', '请填写承运商标识和物流单号。');
+        return request('POST', '/merchant/integrations/tracking', { carrier: input.carrier, trackingNumber: input.trackingNumber }, { 'Idempotency-Key': keyHeader(idempotencyKey) });
+      },
       async getQuotes(input, idempotencyKey) {
         const result = await request('POST', '/quotes', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });
         if (!Array.isArray(result.quotes)) throw fail('INVALID_RESPONSE', '报价响应缺少 quotes 列表。');

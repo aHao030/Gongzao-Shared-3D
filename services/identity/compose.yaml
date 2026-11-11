@@ -1,0 +1,18 @@
+name: gongzao-identity-local
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    command: ["start-dev", "--import-realm"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8180:8080"
+    env_file:
+      - ../../data/identity/identity.env
+    environment:
+      KC_HOSTNAME: http://127.0.0.1:8180
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ../../data/identity/import:/opt/keycloak/data/import:ro
+      - identity-data:/opt/keycloak/data
+volumes:
+  identity-data:

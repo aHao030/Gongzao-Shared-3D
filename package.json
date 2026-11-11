@@ -1,9 +1,9 @@
 {
   "name": "gongzao-shared-fabrication",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
-  "description": "共造共享制造平台：模型询价、商家方案确认与设备管理沙盒",
+  "description": "共造共享制造平台：模型询价、制造运算、生产库存与履约沙盒",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -16,7 +16,11 @@
     "build": "node tools/build-worker.mjs",
     "db:generate": "drizzle-kit generate",
     "test:load": "node tools/load-smoke.mjs",
-    "gateway": "node services/device-gateway/cli.mjs"
+    "gateway": "node services/device-gateway/cli.mjs",
+    "worker:configure": "node tools/create-worker-config.mjs",
+    "worker": "node services/manufacturing-worker/cli.mjs",
+    "integrations": "node services/integrations/cli.mjs",
+    "identity:configure": "node services/identity/setup.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.0",

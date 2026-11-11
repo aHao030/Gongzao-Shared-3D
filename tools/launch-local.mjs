@@ -67,7 +67,7 @@ export async function launch(args = process.argv.slice(2)) {
   process.once('SIGTERM', shutdown);
   server.on('error', error => { console.error(`Server error: ${error.message}`); process.exitCode = 1; shutdown(); });
   const url = `http://127.0.0.1:${options.port}`;
-  console.log(`\nGongzao v0.8 - local sandbox\n${url}\nMerchant: ${url}/merchant/login\n`);
+  console.log(`\nGongzao v0.9 - local sandbox\n${url}\nMerchant: ${url}/merchant/login\n`);
   console.log('Keep this window open. Press Ctrl+C to stop.');
   console.log('Local data: data/platform.sqlite (or your DATA_PATH setting).');
   console.log('Printing, payments and logistics are simulated. No npm install is required.\n');

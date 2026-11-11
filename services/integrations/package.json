@@ -1,0 +1,9 @@
+{
+  "name": "@gongzao/integrations",
+  "version": "0.9.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24"},
+  "description": "Optional farm integrations; installed separately from the web platform",
+  "optionalDependencies": {"bullmq": "6.7.2"}
+}

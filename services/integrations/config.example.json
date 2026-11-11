@@ -1,0 +1,13 @@
+{
+  "ownerId": "COPY_THE_AUTHENTICATED_LOCAL_WORKSPACE_ID",
+  "timeoutMs": 8000,
+  "allowPrivateOrigins": ["http://127.0.0.1:7912", "http://127.0.0.1:4000"],
+  "services": {
+    "spoolman": {"baseUrl": "http://127.0.0.1:7912", "apiKeyEnv": "GONGZAO_SPOOLMAN_KEY"},
+    "fdmMonster": {"baseUrl": "http://127.0.0.1:4000", "apiKeyEnv": "GONGZAO_FDM_MONSTER_KEY"},
+    "obico": {"baseUrl": "", "apiKeyEnv": "GONGZAO_OBICO_TOKEN"},
+    "karrio": {"baseUrl": "", "apiKeyEnv": "GONGZAO_KARRIO_KEY"},
+    "hyperswitch": {"baseUrl": "", "apiKeyEnv": "GONGZAO_HYPERSWITCH_KEY", "mode": "test", "profileId": ""}
+  },
+  "devices": []
+}

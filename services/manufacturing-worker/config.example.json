@@ -1,0 +1,12 @@
+{
+  "platformOrigin": "http://127.0.0.1:3000",
+  "workerToken": "REPLACE_WITH_SCOPED_WORKER_TOKEN",
+  "apiPrefix": "/api/v2/worker",
+  "pythonExecutable": "python3",
+  "prusaSlicerExecutable": "prusa-slicer",
+  "pollSeconds": 5,
+  "maxTaskSeconds": 240,
+  "workDirectory": "data/manufacturing-worker",
+  "kinds": ["ANALYZE_MODEL", "SLICE_MODEL", "SCHEDULE"],
+  "profiles": {}
+}

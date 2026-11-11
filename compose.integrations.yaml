@@ -1,0 +1,46 @@
+# Optional local services. This file does not change the platform's default startup.
+# Start only the profiles you need; all exposed ports bind to the local machine.
+services:
+  spoolman:
+    profiles: [inventory]
+    image: ghcr.io/donkie/spoolman:0.27.1
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:7912:8000"
+    volumes:
+      - gongzao-spoolman:/home/app/.local/share/spoolman
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+  fdm-monster:
+    profiles: [farm]
+    image: fdmmonster/fdm-monster:2.1.0
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - gongzao-fdm-media:/app/media
+      - gongzao-fdm-database:/app/database
+    environment:
+      - MEDIA_PATH=/app/media
+      - DATABASE_PATH=/app/database
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+  redis:
+    profiles: [queue]
+    image: redis:8.10.3-alpine
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - gongzao-redis:/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  gongzao-spoolman:
+  gongzao-fdm-media:
+  gongzao-fdm-database:
+  gongzao-redis:

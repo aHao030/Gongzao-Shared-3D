@@ -79,7 +79,14 @@ function returnPath(value) {
 export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) {
   const db=store.db,configuration=loadAuthConfig(authConfig)||{};
   let oidc=null,configurationInvalid=Boolean(configuration.configurationInvalid);
-  if(configuration.oidc&&configuration.oidc.enabled!==false){try {oidc=createOIDCAdapter(configuration.oidc,{clock,...(authFetch?{fetchImpl:authFetch}:{})});}catch {configurationInvalid=true;}}
+  if(configuration.oidc&&configuration.oidc.enabled!==false){try {
+    const raw={...configuration.oidc};
+    if(raw.clientSecretEnv!==undefined){
+      if(typeof raw.clientSecretEnv!=='string'||!/^GONGZAO_[A-Z0-9_]{1,80}$/.test(raw.clientSecretEnv)||raw.clientSecret!==undefined)throw new Error('invalid client secret reference');
+      raw.clientSecret=process.env[raw.clientSecretEnv];
+    }
+    oidc=createOIDCAdapter(raw,{clock,...(authFetch?{fetchImpl:authFetch}:{})});
+  }catch {configurationInvalid=true;}}
   const publicOrigin=originFrom(configuration.publicOrigin||oidc?.config?.publicOrigin);
   if(configuration.publicOrigin&&!publicOrigin){configurationInvalid=true;oidc=null;}
   if(oidc&&publicOrigin!==oidc.config.publicOrigin){configurationInvalid=true;oidc=null;}
@@ -187,6 +194,12 @@ export function createLocalAuth(store,{clock=Date.now,authConfig,authFetch}={}) 
             .run(id,'account_space_'+randomUUID(),email,displayNameValue(external.displayName?.slice(0,64)),external.issuer,external.sub,email&&external.emailVerified?1:0,clock());
           user=db.prepare('SELECT * FROM auth_users WHERE issuer=? AND subject=?').get(external.issuer,external.sub);
         }
+        // Refresh verified claims without using e-mail to merge identities or
+        // accepting arbitrary role claims as marketplace authorization.
+        const currentEmail=emailValue(external.email);
+        db.prepare('UPDATE auth_users SET external_email=?,display_name=?,email_verified=? WHERE id=? AND issuer=? AND subject=?')
+          .run(currentEmail,displayNameValue(external.displayName?.slice(0,64)),currentEmail&&external.emailVerified?1:0,user.id,external.issuer,external.sub);
+        user=db.prepare('SELECT * FROM auth_users WHERE id=?').get(user.id);
         const response=new Response(null,{status:302,headers:{Location:flow.return_path,'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
         response.headers.append('Set-Cookie',newSession(request,user));response.headers.append('Set-Cookie',clearCookie(FLOW_COOKIE));
         return response;

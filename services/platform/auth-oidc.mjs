@@ -2,7 +2,7 @@ import { createHash, createPublicKey, timingSafeEqual, verify } from 'node:crypt
 
 // This adapter is server-only. Browser responses must never serialize its config.
 // Identity is the exact (issuer, sub) pair, never a matching e-mail address.
-const PROVIDERS = new Set(['wechat', 'alipay', 'x', 'apple', 'qq', 'google']);
+const PROVIDERS = new Set(['wechat', 'alipay', 'x', 'apple', 'qq', 'google', 'keycloak']);
 const MAX_JSON_BYTES = 65536;
 const MAX_ID_TOKEN_BYTES = 24576;
 const REQUEST_TIMEOUT_MS = 12000;
@@ -33,13 +33,30 @@ function originURL(value, allowLoopback = false) {
   return url.origin;
 }
 
+// OIDC issuers can have a path (Keycloak uses /realms/<realm>). Keep that
+// exact identity, while separately restricting discovered endpoints by origin.
+function issuerURL(value, allowLoopback = false) {
+  requireCondition(textValue(value, 2048) && !/[\\\s]/.test(value), 'OIDC_CONFIG_INVALID');
+  let url;
+  try { url = new URL(value); } catch { throw failure('OIDC_CONFIG_INVALID'); }
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  requireCondition((url.protocol === 'https:' || (allowLoopback && loopback && url.protocol === 'http:')) &&
+    !url.username && !url.password && !url.search && !url.hash &&
+    !/%(?:2f|5c|2e)/i.test(url.pathname), 'OIDC_CONFIG_INVALID');
+  const normalized = url.origin + (url.pathname === '/' ? '' : url.pathname);
+  // Reject dot-segment/encoding normalization and ambiguous trailing slash.
+  requireCondition(value === normalized && (url.pathname === '/' || !url.pathname.endsWith('/')), 'OIDC_CONFIG_INVALID');
+  return normalized;
+}
+
 /** Validate only administrator-supplied configuration; never pass browser data here. */
 export function validateOIDCConfig(raw) {
   requireCondition(raw && typeof raw === 'object' && !Array.isArray(raw), 'OIDC_CONFIG_INVALID');
-  const issuer = originURL(raw.issuer);
+  requireCondition(raw.allowInsecureLoopbackIssuer === undefined || typeof raw.allowInsecureLoopbackIssuer === 'boolean', 'OIDC_CONFIG_INVALID');
+  const issuer = issuerURL(raw.issuer, raw.allowInsecureLoopbackIssuer === true);
   const publicOrigin = originURL(raw.publicOrigin, true);
   const adapter = raw.adapter ?? 'oidc';
-  requireCondition(['oidc', 'casdoor'].includes(adapter), 'OIDC_CONFIG_INVALID');
+  requireCondition(['oidc', 'casdoor', 'keycloak'].includes(adapter), 'OIDC_CONFIG_INVALID');
   requireCondition(textValue(raw.clientId, 512) && textValue(raw.clientSecret, 4096), 'OIDC_CONFIG_INVALID');
   const tokenEndpointAuthMethod = raw.tokenEndpointAuthMethod ?? 'client_secret_post';
   requireCondition(['client_secret_post', 'client_secret_basic'].includes(tokenEndpointAuthMethod), 'OIDC_CONFIG_INVALID');
@@ -47,11 +64,12 @@ export function validateOIDCConfig(raw) {
   const providers = Object.create(null);
   for (const [id, providerName] of Object.entries(raw.providers)) {
     requireCondition(PROVIDERS.has(id) && textValue(providerName, 200), 'OIDC_CONFIG_INVALID');
+    if (id === 'keycloak') requireCondition(adapter === 'keycloak' && providerName === 'realm', 'OIDC_CONFIG_INVALID');
     providers[id] = providerName;
   }
   requireCondition(Object.keys(providers).length > 0, 'OIDC_CONFIG_INVALID');
   return Object.freeze({ issuer, publicOrigin, adapter, clientId: raw.clientId, clientSecret: raw.clientSecret,
-    tokenEndpointAuthMethod, providers: Object.freeze(providers) });
+    tokenEndpointAuthMethod, providers: Object.freeze(providers), allowInsecureLoopbackIssuer: raw.allowInsecureLoopbackIssuer === true });
 }
 
 function endpointURL(value, issuer) {
@@ -59,7 +77,8 @@ function endpointURL(value, issuer) {
   let url;
   try { url = new URL(value); } catch { throw failure(); }
   // Discovery cannot delegate requests or client credentials to another origin.
-  requireCondition(url.protocol === 'https:' && url.origin === issuer && !url.username && !url.password && !url.hash);
+  const issuerOrigin = new URL(issuer).origin;
+  requireCondition(url.protocol === new URL(issuer).protocol && url.origin === issuerOrigin && !url.username && !url.password && !url.hash);
   return url.href;
 }
 
@@ -172,6 +191,7 @@ export function createOIDCAdapter(raw, { fetchImpl = globalThis.fetch, clock = D
       url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
       url.searchParams.set('code_challenge_method', 'S256');
       if (config.adapter === 'casdoor') url.searchParams.set('provider_hint', config.providers[provider]);
+      if (config.adapter === 'keycloak' && provider !== 'keycloak') url.searchParams.set('kc_idp_hint', config.providers[provider]);
       return url.href;
     } catch { throw failure(); }
   }

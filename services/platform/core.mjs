@@ -4,6 +4,7 @@ import { ACCOUNTING_CURRENCY, quoteMarketContext } from './market.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
 import { PRICING_VERSION, getPricingProfile, savePricingProfile, estimateBatch, estimateBatchPrice, settlementBreakdown } from './pricing.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
+import { findSliceEvidence } from './operations.mjs';
 
 export class PlatformError extends Error {
   constructor(code, message, status = 409) { super(message); this.name = 'PlatformError'; this.code = code; this.status = status; }
@@ -35,7 +36,9 @@ export function createWorkspace({ now = Date.now() } = {}) {
 export function getPublicWorkspace(workspace) {
   return clone({ customerProfile: getCustomerProfile(workspace), revision: workspace.revision, orders: workspace.orders, devices: workspace.devices, inquiries: getInquiries(workspace).inquiries, models: workspace.models.map(({ blobKey, ...model }) => model) });
 }
-function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED'); }
+const managedProduction = (workspace, orderId) => workspace.operations?.productions?.find(production => production.orderId === orderId);
+const productionOccupies = (workspace, deviceId) => workspace.operations?.productions?.some(production => production.deviceId === deviceId && !['CANCELLED','QC_PASSED','QC_FAILED'].includes(production.status));
+function nextQueued(workspace, device) { return workspace.orders.find(order => order.farm === device.farm && order.productionState === 'QUEUED' && !managedProduction(workspace,order.id)); }
 function project(order) {
   order.dispute = order.disputeState === 'OPEN';
   if (order.refundState === 'SIMULATED_REFUNDED') order.status = 'refunded';
@@ -52,6 +55,7 @@ function project(order) {
   check(Boolean(order.status), 'INVALID_STATE', '订单状态不可展示');
 }
 function dispatchNext(workspace, device, now) {
+  if (productionOccupies(workspace,device?.id)) return;
   if (device.state !== 'ready' || device.orderId) return;
   const order = nextQueued(workspace, device);
   device.blockedReason = null;
@@ -102,9 +106,21 @@ async function makeQuotes(workspace, payload, now, idFactory) {
     Object.assign(q, quoteMarketContext(address, q.review), { currency: ACCOUNTING_CURRENCY, priceStatus: q.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
     if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
-      const weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
+      let weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
       const profile = getPricingProfile(workspace, farm.id);
-      const economics = estimateBatchPrice({ profile: { ...profile, materialKey: config.material }, batch, singleWeightGrams: weight, quantity: config.qty, quality: config.quality });
+      let economics = estimateBatchPrice({ profile: { ...profile, materialKey: config.material }, batch, singleWeightGrams: weight, quantity: config.qty, quality: config.quality });
+      const sliced = findSliceEvidence(workspace,{modelId:model.id,modelHash:model.sha256,qty:config.qty,unit:config.unit,material:config.material,farmId:farm.id,quality:config.quality});
+      let quotedBatch = batch;
+      if (sliced) {
+        const { job, economics: measured } = sliced, total = measured.suggestedManufacturingCents;
+        const allocate = cents => measured.estimatedCostCents > 0 ? Number(BigInt(total)*BigInt(cents)/BigInt(measured.estimatedCostCents)) : 0;
+        const saleMaterialCents = allocate(measured.costBreakdown.materialCents), saleMachineCents = allocate(measured.costBreakdown.machineCents+measured.costBreakdown.electricityCents);
+        economics = {...measured,productionHours:measured.durationSeconds/3600,materialGrams:measured.materialGrams,manufacturingCents:total,saleMaterialCents,saleMachineCents,saleFinishingCents:total-saleMaterialCents-saleMachineCents,profitFloorCents:measured.minimumProfitCents,estimatedMarginBps:Number(BigInt(measured.estimatedProfitCents)*10000n/BigInt(total))};
+        weight = measured.materialGrams/config.qty;
+        quotedBatch = {...clone(batch),method:'SLICER_OUTPUT_ESTIMATE',plateCount:job.result.plateCount,verified:false,layoutVerified:false,partsPerPlate:null,capacityPerPlate:null};
+        q.sliceEvidence = {jobId:job.id,inputHash:job.inputHash,modelHash:job.modelHash,profileId:job.profileId,profileRevision:job.profileRevision,profileSha256:job.result.profileSha256,artifactHash:job.result.artifactHash,engineVersion:job.result.engineVersion,provenance:'WORKER_OBSERVED'};
+        q.estimateBasis='SLICER_OUTPUT';
+      } else q.estimateBasis='DEMO_GEOMETRY_ESTIMATE';
       const { productionHours, manufacturingCents, saleMaterialCents: materialCents, saleMachineCents: machineCents, saleFinishingCents: finishingCents } = economics;
       const hours = productionHours / config.qty;
       const serviceCents = Math.ceil(manufacturingCents * 700 / 10000);
@@ -119,9 +135,9 @@ async function makeQuotes(workspace, payload, now, idFactory) {
       const totalCents = materialCents + machineCents + finishingCents + serviceCents + shippingCents;
       check(Number.isSafeInteger(totalCents) && totalCents > 0, 'INVALID_PRICE', '报价超出有效范围');
       const pricingSummary = { manufacturingCents, platformFeeCents: serviceCents, shippingCents, merchantReceivableCents: manufacturingCents + shippingCents, customerTotalCents: totalCents, averageUnitManufacturingCents: Math.round(manufacturingCents / config.qty) };
-      Object.assign(q, { pricingVersion: PRICING_VERSION, pricingRevision: profile.revision, batch: clone(batch), pricingSummary, weight, hours, productionHours, queueHours, preparationDays, transitDays, days, materialCents, machineCents, finishingCents, shippingCents, serviceCents, totalCents, total: money(totalCents), material: money(materialCents), machine: money(machineCents), finishing: money(finishingCents), shipping: money(shippingCents), service: money(serviceCents) });
+      Object.assign(q, { pricingVersion: PRICING_VERSION, pricingRevision: profile.revision, batch: clone(quotedBatch), pricingSummary, weight, hours, productionHours, queueHours, preparationDays, transitDays, days, materialCents, machineCents, finishingCents, shippingCents, serviceCents, totalCents, total: money(totalCents), material: money(materialCents), machine: money(machineCents), finishing: money(finishingCents), shipping: money(shippingCents), service: money(serviceCents) });
       // Costs and profit are owner-scoped merchant evidence, never quote/order fields.
-      (workspace.pricingEvidence ??= {})[q.quoteId] = { ...economics, quoteId: q.quoteId, farmId: farm.id, modelName: model.name, quantity: config.qty, pricingRevision: profile.revision, issuedAt: now, mode: 'DEMO_ASSUMPTIONS', batch: clone(batch), pricingSummary: clone(pricingSummary), profileSnapshot: clone(profile) };
+      (workspace.pricingEvidence ??= {})[q.quoteId] = { ...economics, quoteId: q.quoteId, farmId: farm.id, modelName: model.name, quantity: config.qty, pricingRevision: profile.revision, issuedAt: now, mode: sliced?'SLICER_WITH_MERCHANT_COST_ASSUMPTIONS':'DEMO_ASSUMPTIONS', batch: clone(quotedBatch), pricingSummary: clone(pricingSummary), profileSnapshot: clone(profile) };
 
     }
     // q.material is a legacy UI sales amount allocation, not a private cost; preserve the selected material separately.
@@ -178,6 +194,10 @@ async function createOrder(workspace, payload, now, idFactory, acceptedProposal 
   check(quote.addressRevision === addressRevision && quote.addressFingerprint === await digest(address), 'ADDRESS_CHANGED', '收货地址已更新，请重新测算费用后下单');
   const model = find(workspace.models, quote.modelId, 'MODEL_NOT_FOUND');
   check(model.sha256 === quote.modelHash && (model.version ?? 1) === quote.modelVersion, 'MODEL_CHANGED', '文件版本已变化，请重新报价');
+  if(quote.sliceEvidence){
+    const evidence=quote.sliceEvidence, currentProfile=workspace.operations?.profiles?.find(profile=>profile.id===evidence.profileId);
+    check(currentProfile?.enabled && currentProfile.revision===evidence.profileRevision && (!currentProfile.expectedProfileSha256 || currentProfile.expectedProfileSha256===evidence.profileSha256), 'SLICE_PROFILE_CHANGED', '切片工艺已更新，请重新切片并测算费用');
+  }
   const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, shippingAddress: clone(address), addressRevision, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
   // Older valid v0.6 quotes lack a market snapshot; derive their context from
   // the verified stored address, never from an order's client-supplied fields.
@@ -196,6 +216,7 @@ function act(workspace, payload, now, idFactory) {
   check(['reset', 'complete-print', 'prepare-device', 'set-device-paused', 'collect-and-qc', 'ship', 'deliver', 'accept', 'request-settlement', 'resolve-settlement', 'request-refund', 'resolve-refund', 'dispute', 'cancel'].includes(action), 'UNKNOWN_ACTION', '未知操作', 400);
   if (action === 'reset') {
     check(payload.confirm === 'RESET_DEMO', 'RESET_CONFIRMATION_REQUIRED', '重置需明确确认');
+    check(!(workspace.operations?.jobs?.length || workspace.operations?.productions?.length), 'OPERATIONS_RESET_BLOCKED', '生产中心已有模型任务或库存台账，不能通过旧演示重置删除关联模型和订单');
     const fresh = createWorkspace({ now });
     // Preserve the request ledger so old mutation keys cannot replay after reset.
     Object.assign(workspace, { orders: fresh.orders, devices: fresh.devices, quotes: fresh.quotes, models: fresh.models, pricingEvidence: {}, inquiries: [], proposalEconomics: [] });
@@ -204,6 +225,7 @@ function act(workspace, payload, now, idFactory) {
   check(text(payload.id), 'INVALID_RESOURCE_ID', '订单或设备 ID 无效', 400);
   if (['complete-print', 'prepare-device', 'set-device-paused'].includes(action)) {
     const device = find(workspace.devices, payload.id, 'DEVICE_NOT_FOUND');
+    check(!productionOccupies(workspace,device.id), 'USE_PRODUCTION_CENTER', '此设备由生产中心管理，请在那里记录完工、取件与质检');
     if (action === 'complete-print') {
       check(device.state === 'printing' && device.orderId, 'DEVICE_NOT_PRINTING', '设备当前没有打印任务');
       const order = find(workspace.orders, device.orderId, 'ORDER_NOT_FOUND');
@@ -224,6 +246,10 @@ function act(workspace, payload, now, idFactory) {
     return { device, blockedReason: device.blockedReason ?? null };
   }
   const order = find(workspace.orders, payload.id, 'ORDER_NOT_FOUND');
+  const production = managedProduction(workspace,order.id);
+  if (production && action === 'collect-and-qc') throw new PlatformError('USE_PRODUCTION_CENTER','此订单需在生产中心确认取件与质检');
+  if (production && (action === 'cancel' || action === 'resolve-refund' && payload.approved === true))
+    check(['CANCELLED','QC_FAILED','QC_PASSED'].includes(production.status), 'PRODUCTION_RESERVATION_ACTIVE', '请先在生产中心取消未开始任务或完成生产核对，释放库存预留后再处理取消或退款');
   if (action === 'collect-and-qc') {
     check(order.productionState === 'WAITING_REMOVAL', 'COLLECTION_NOT_ALLOWED', '该订单不处于待取件状态');
     const device = find(workspace.devices, order.deviceId, 'DEVICE_NOT_FOUND');

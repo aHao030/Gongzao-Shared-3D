@@ -1,0 +1,13 @@
+{
+  "publicOrigin": "https://print.example.com",
+  "oidc": {
+    "enabled": false,
+    "adapter": "keycloak",
+    "issuer": "https://identity.example.com/realms/gongzao",
+    "publicOrigin": "https://print.example.com",
+    "clientId": "gongzao-platform",
+    "clientSecretEnv": "GONGZAO_OIDC_CLIENT_SECRET",
+    "tokenEndpointAuthMethod": "client_secret_post",
+    "providers": {"keycloak": "realm"}
+  }
+}

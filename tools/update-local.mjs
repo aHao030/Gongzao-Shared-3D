@@ -15,6 +15,7 @@ export function permittedUpdatePath(name) {
   if (parts.some(part => !part || part === '.' || part === '..' || /[ .]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) return false;
   if (parts.some(part => ['data', 'node_modules', '.git', '.openai', '.sites-runtime', '.wrangler', 'generated', 'artifacts', 'secrets', '.secrets', 'private', 'credentials'].includes(part.toLowerCase()))) return false;
   if (parts.some(part => /^\.env(?:\.|$)|^\.dev\.vars|\.private\.|\.secret(?:\.|$)|\.gateway\.local\.|^gateway(?:[.-].*)?\.json$|^native-api\.config\.json$|^credentials(?:\.|$)|\.(?:pem|key|p12|pfx)$|\.sqlite(?:-|$)|\.log$|\.backup-/i.test(part))) return false;
+  if (parts.some(part => /^(?:auth|worker|worker-access|integrations)\.config(?:\.local)?\.json$|\.local\.json$|^\.venv(?:$|[-_.])|^__pycache__$|\.pyc$/i.test(part))) return false;
   return !name.toLowerCase().startsWith('dist/server/') && !['update-manifest.json', 'sha256sums.txt'].includes(name.toLowerCase());
 }
 

@@ -5,6 +5,8 @@ import { getMarketCatalog } from './market.mjs';
 import { handleMerchantApi } from './merchant-http.mjs';
 import { applyCommand, getPublicWorkspace } from './core.mjs';
 import { ApiError, ensure, analyzeModel } from './geometry.mjs';
+import { handleOperationsApi, handleProductionWorkerApi } from './operations-http.mjs';
+import { unconfiguredStatus } from '../integrations/catalog.mjs';
 
 const JSON_HEADERS={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin'};
 export async function readLimited(request,limit) {
@@ -17,12 +19,14 @@ export async function readLimited(request,limit) {
   const bytes=new Uint8Array(size);let at=0;for(const chunk of chunks){bytes.set(chunk,at);at+=chunk.byteLength;}return bytes;
 }
 export function jsonResponse(data,status=200,extra={}) {return new Response(JSON.stringify(data),{status,headers:{...JSON_HEADERS,...extra}});}
-export async function handleApi(request,{store,ownerId,userLabel='创作者',clock=Date.now}) {
+export async function handleApi(request,{store,ownerId,userLabel='创作者',clock=Date.now,accountAuthenticated=true,workerAccess,integrations}) {
   const requestId=crypto.randomUUID(),url=new URL(request.url),path=url.pathname;
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
+    if(path.startsWith('/api/v2/worker/'))return handleProductionWorkerApi(request,{store,clock,workerAccess});
+    if(path==='/api/v2/merchant/operations'||path.startsWith('/api/v2/merchant/operations/')||path==='/api/v2/merchant/integrations'||path.startsWith('/api/v2/merchant/integrations/'))return handleOperationsApi(request,{store,ownerId,clock,accountAuthenticated,workerAccess,integrations,unconfiguredIntegrations:unconfiguredStatus()});
     if((path.startsWith('/api/v2/merchant/')&&!['/api/v2/merchant/pricing','/api/v2/merchant/capabilities','/api/v2/merchant/inquiries','/api/v2/merchant/proposals'].includes(path))||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.8.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.9.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false,manufacturingOperations:true});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
