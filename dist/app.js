@@ -1,4 +1,6 @@
 import { createMerchantUI } from './merchant-ui.js';
+import { createAuthUI } from './auth-ui.js';
+import { createInternationalUI } from './international-ui.js';
 import { get, prepareMutation } from './api-client.js';
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -74,8 +76,6 @@ function requestNotice(){
  return text;
 }
 let customerModal=null,customerSaving=false,onboardingPrompted=false,customerSaveTask=null;
-const customerProvinces=['北京市','天津市','河北省','山西省','内蒙古自治区','辽宁省','吉林省','黑龙江省','上海市','江苏省','浙江省','安徽省','福建省','江西省','山东省','河南省','湖北省','湖南省','广东省','广西壮族自治区','海南省','重庆市','四川省','贵州省','云南省','西藏自治区','陕西省','甘肃省','青海省','宁夏回族自治区','新疆维吾尔自治区'];
-const customerCountries={CN:'中国大陆',HK:'中国香港',MO:'中国澳门',TW:'中国台湾',US:'美国',CA:'加拿大',GB:'英国',DE:'德国',FR:'法国',AU:'澳大利亚',NZ:'新西兰',JP:'日本',KR:'韩国',SG:'新加坡',MY:'马来西亚',TH:'泰国',OTHER:'其他国家 / 地区'};
 function hasShippingAddress(){return Boolean(state.customerProfile?.shippingAddress);}
 function clearQuotes(){quoteSequence++;state.quotes=[];state.quoteLoading=false;state.quoteError=null;quoteTask=null;clearTimeout(quoteTimer);}
 async function reloadCustomerProfile(){
@@ -96,19 +96,15 @@ function requestCostEstimate(){
 function customerInput(id,label,value,{autocomplete='',max=120,required=true,type='text',placeholder=''}={}){
  return '<div class="field"><label class="field-label" for="'+id+'">'+label+'</label><input class="input" id="'+id+'" name="'+id+'" type="'+type+'" value="'+esc(value)+'" maxlength="'+max+'" '+(required?'required':'')+' '+(autocomplete?'autocomplete="'+autocomplete+'"':'')+' placeholder="'+esc(placeholder)+'"/></div>';
 }
-function customerProvinceField(country,value){
- if(country!=='CN')return '<label class="field-label" for="customer-province">省 / 州</label><input class="input" id="customer-province" name="customer-province" autocomplete="address-level1" maxlength="80" required value="'+esc(value)+'" placeholder="填写省、州或行政区"/>';
- const options=customerProvinces.includes(value)||!value?customerProvinces:[value,...customerProvinces];
- return '<label class="field-label" for="customer-province">省 / 直辖市 / 自治区</label><select class="select" id="customer-province" name="customer-province" autocomplete="address-level1" required><option value="">请选择</option>'+options.map(v=>'<option '+(v===value?'selected':'')+' value="'+esc(v)+'">'+esc(v)+'</option>').join('')+'</select>';
-}
-function openCustomerProfile({required=false,onboarding=false}={}){
+async function openCustomerProfile({required=false,onboarding=false}={}){
  if(customerSaving||state.busy)return;
  if(state.connection==='loading'||!state.customerProfileLoaded){toast(state.connection==='offline'?'请重新连接服务端后打开账号资料。':'账号资料正在加载，请稍候。');return;}
  if(state.connection!=='online'){toast('请重新连接服务端后打开账号资料。');return;}
- const profile=state.customerProfile||{},address=profile.shippingAddress||{},countryCode=address.countryCode||'CN',country=Object.hasOwn(customerCountries,countryCode)?countryCode:'OTHER';
+ try{await international.load();}catch(error){toast(error.message||'地区配置加载失败，请重试。');return;}
+ const profile=state.customerProfile||{},address=profile.shippingAddress||{};
  const title=required?'填写收货地址':onboarding?'完善账号资料':'账号资料';
- const description=required?'测算配送费用与交付时间前，请补充收货地址。保存后会继续本次费用测算。':onboarding?'欢迎来到共造。为当前账号填写资料与收货地址，后续测算将自动使用。也可以稍后再填。':'收货地址保存在你的账号资料中，后续费用测算自动使用。修改后会重新获取报价。';
- const body='<p class="customer-form-intro">'+description+'</p><form id="customer-profile-form" class="customer-profile-form">'+customerInput('customer-display-name','称呼（选填）',profile.displayName||'',{autocomplete:'nickname',max:80,required:false,placeholder:'如何称呼你'})+'<div class="customer-form-heading"><h3>收货资料</h3><span>仅用于配送与费用测算</span></div><div class="customer-form-grid">'+customerInput('customer-recipient','收货人',address.recipient||'',{autocomplete:'shipping name',max:80})+customerInput('customer-phone','联系电话',address.phone||'',{autocomplete:'shipping tel',max:40,type:'tel',placeholder:'可包含国家区号'})+'<div class="field"><label class="field-label" for="customer-country">国家 / 地区</label><select class="select" id="customer-country" name="customer-country" autocomplete="shipping country">'+Object.entries(customerCountries).map(([k,v])=>'<option value="'+k+'" '+(k===country?'selected':'')+'>'+v+'</option>').join('')+'</select></div><div class="field" id="customer-province-field">'+customerProvinceField(countryCode,address.province||'')+'</div><div class="field" id="customer-other-country-field" '+(country==='OTHER'?'':'hidden')+'><label class="field-label" for="customer-country-code">国家 / 地区代码</label><input class="input" id="customer-country-code" maxlength="2" pattern="[A-Za-z]{2}" '+(country==='OTHER'?'required':'')+' value="'+esc(country==='OTHER'?countryCode:'')+'" placeholder="两位字母，如 IT"/></div>'+customerInput('customer-city','城市',address.city||'',{autocomplete:'shipping address-level2',max:80})+'<div class="field"><label class="field-label" id="customer-district-label" for="customer-district">'+(countryCode==='CN'?'区 / 县':'区 / 县（选填）')+'</label><input class="input" id="customer-district" autocomplete="shipping address-level3" maxlength="80" '+(countryCode==='CN'?'required':'')+' value="'+esc(address.district||'')+'"/></div></div>'+customerInput('customer-address-line','详细地址',address.addressLine||'',{autocomplete:'shipping address-line1',max:240,placeholder:'街道、门牌号、楼层等'})+customerInput('customer-postal-code','邮政编码（选填）',address.postalCode||'',{autocomplete:'shipping postal-code',max:20,required:false})+'<p class="customer-privacy-note">首页不会展示你的收货地址。超出当前配送估价范围的地区将转为工程询价。</p><div id="customer-form-error" class="error-text" role="alert"></div></form>';
+ const description=required?'测算配送费用与交付时间前，请补充收货地址。保存后会继续本次费用测算。':onboarding?'欢迎来到共造。填写资料与收货地址，后续测算将自动使用。也可以稍后再填。':'收货资料仅在账号中显示。选择国家 / 地区后，地址格式与支付方案会自动调整。';
+ const body='<p class="customer-form-intro">'+description+'</p><form id="customer-profile-form" class="customer-profile-form">'+customerInput('customer-display-name','称呼（选填）',profile.displayName||'',{autocomplete:'nickname',max:80,required:false,placeholder:'如何称呼你'})+'<div class="customer-form-heading"><h3>收货资料</h3><span>仅用于配送与费用测算</span></div><div id="customer-address-fields">'+international.fieldsHTML(address)+'</div><p class="customer-privacy-note">首页不会展示收货地址。海外及未覆盖地区进入工程询价，交期、运费与税费需确认。</p><div id="customer-form-error" class="error-text" role="alert"></div></form>';
  const skip=!required&&!address.recipient?'<button class="btn" data-action="customer-skip">稍后填写</button>':'<button class="btn" data-action="close">取消</button>';
  modal(title,body,skip+'<button class="btn primary" data-action="customer-save">'+(required?'保存并测算费用':'保存资料')+I('arrow')+'</button>',true);
  customerModal={required,onboarding};customerSaveTask=null;$('.modal')?.classList.add('customer-profile-modal');
@@ -120,11 +116,11 @@ async function saveCustomerProfile(skip=false){
  let address=state.customerProfile?.shippingAddress||null;
  if(!skip){
   if(!form.reportValidity())return;
-  const country=value('customer-country'),countryCode=(country==='OTHER'?value('customer-country-code'):country).toUpperCase(),phone=value('customer-phone');
-  if(!/^[A-Z]{2}$/.test(countryCode)){errorNode.textContent='请填写两位字母的国家 / 地区代码。';$('#customer-country-code').focus();return;}
-  if(!/^[+0-9 ()-]+$/.test(phone)||phone.replace(/\D/g,'').length<5||phone.replace(/\D/g,'').length>20){errorNode.textContent='请填写有效的联系电话，可包含国家区号、空格和短横线。';$('#customer-phone').focus();return;}
-  address={recipient:value('customer-recipient'),phone,countryCode,province:value('customer-province'),city:value('customer-city'),district:value('customer-district'),addressLine:value('customer-address-line'),postalCode:value('customer-postal-code')};
-  if([address.recipient,address.province,address.city,address.addressLine,...(countryCode==='CN'?[address.district]:[])].some(v=>!v)){errorNode.textContent='请填写完整的收货资料。';return;}
+  address=international.readAddress();
+  const validation=international.validateAddress(address);
+  if(validation){errorNode.textContent=validation;return;}
+  if(!/^[+0-9 ()-]+$/.test(address.phone)||address.phone.replace(/\D/g,'').length<5||address.phone.replace(/\D/g,'').length>20){errorNode.textContent='请填写有效的联系电话，可包含国家区号、空格和短横线。';$('#customer-phone').focus();return;}
+
  }
  const payload={displayName:value('customer-display-name'),shippingAddress:address,setupCompleted:true},signature=JSON.stringify(payload);
  const previousRevision=state.customerProfile?.addressRevision;
@@ -150,7 +146,12 @@ async function saveCustomerProfile(skip=false){
 async function connectWorkspace(){
  if(state.busy)return;
  state.connection='loading';state.customerProfileLoaded=false;state.error=null;render();
- try{state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();if(merchant.isRoute())await merchant.load(false);else{await refreshQuotes();if(!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}}
+ try{
+  await auth.load();
+  state.session=await get('/session');const result=await get('/workspace');applyWorkspace(result.workspace);state.connection='online';render();
+  if(merchant.isRoute())await merchant.load(false);
+  else if(!auth.isRoute()){await refreshQuotes();if(!state.customerProfile?.setupCompleted&&!onboardingPrompted&&!$('.modal')){onboardingPrompted=true;openCustomerProfile({onboarding:true});}}
+ }
  catch(error){state.connection='offline';state.error=error;state.quotes=[];render();}
 }
 function validQuantity(value){return String(value).trim()!==''&&Number.isInteger(Number(value))&&Number(value)>=1&&Number(value)<=50;}
@@ -173,14 +174,14 @@ async function refreshQuotes(retry=false){
  if(!hasShippingAddress()){state.quotes=[];state.quoteLoading=false;state.quoteError=null;render();return;}
  const sequence=++quoteSequence;const config=selectedConfiguration(),addressRevision=state.customerProfile.addressRevision;state.quotes=[];state.quoteLoading=true;state.quoteError=null;render();
  try{const task=retry&&quoteTask?quoteTask:await prepareMutation('/quotes',config);quoteTask=task;const result=await task.execute();if(sequence!==quoteSequence||addressRevision!==state.customerProfile?.addressRevision||JSON.stringify(config)!==JSON.stringify(selectedConfiguration()))return;applyWorkspace(result.workspace);quoteTask=null;if(result.quotes.some(q=>q.addressRevision!==state.customerProfile?.addressRevision)){state.quotes=[];return refreshQuotes();}state.quotes=result.quotes;}
- catch(error){if(sequence===quoteSequence){state.quotes=[];state.quoteError=error;if(['ADDRESS_REQUIRED','ADDRESS_CHANGED','DESTINATION_MISMATCH'].includes(error.code)){await reloadCustomerProfile();state.quoteError=null;}else if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';}}
+ catch(error){if(sequence===quoteSequence){state.quotes=[];state.quoteError=error;if(['ADDRESS_REQUIRED','ADDRESS_CHANGED','ADDRESS_INCOMPLETE','DESTINATION_MISMATCH'].includes(error.code)){await reloadCustomerProfile();state.quoteError=null;if(error.code==='ADDRESS_INCOMPLETE')openCustomerProfile({required:true});}else if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';}}
  finally{if(sequence===quoteSequence){state.quoteLoading=false;render();}}
 }
 async function perform(task,onSuccess,label){
  if(state.busy)return;
  state.busy=true;state.busyLabel=label;state.error=null;render();setModalBusy(true);
  try{const result=await task.execute();applyWorkspace(result.workspace);state.connection='online';retryOperation=null;state.busy=false;state.error=null;onSuccess?.(result);render();}
- catch(error){state.busy=false;if(['ADDRESS_REQUIRED','ADDRESS_CHANGED','DESTINATION_MISMATCH'].includes(error.code)){retryOperation=null;state.error=null;clearQuotes();await reloadCustomerProfile();closeModal();render();if(!hasShippingAddress())openCustomerProfile({required:true});else{toast('收货地址已更新，请使用重新测算的报价。');refreshQuotes();}}else if(error.code==='PRICING_CHANGED'){retryOperation=null;state.error=null;clearQuotes();closeModal();render();toast('商家计价设置已更新，请查看重新测算的报价。');refreshQuotes();}else{state.error=error;retryOperation={task,onSuccess,label};if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';render();showModalError(error);}}
+ catch(error){state.busy=false;if(['ADDRESS_REQUIRED','ADDRESS_CHANGED','ADDRESS_INCOMPLETE','DESTINATION_MISMATCH'].includes(error.code)){retryOperation=null;state.error=null;clearQuotes();await reloadCustomerProfile();closeModal();render();if(!hasShippingAddress()||error.code==='ADDRESS_INCOMPLETE')openCustomerProfile({required:true});else{toast('收货地址已更新，请使用重新测算的报价。');refreshQuotes();}}else if(error.code==='PRICING_CHANGED'){retryOperation=null;state.error=null;clearQuotes();closeModal();render();toast('商家计价设置已更新，请查看重新测算的报价。');refreshQuotes();}else{state.error=error;retryOperation={task,onSuccess,label};if(['NETWORK_ERROR','TIMEOUT','INVALID_RESPONSE'].includes(error.code))state.connection='offline';render();showModalError(error);}}
  finally{state.busy=false;setModalBusy(false);}
 }
 async function mutate(path,payload,onSuccess,label){
@@ -195,14 +196,16 @@ function setModalBusy(busy){$$('.modal button:not([data-action="close"]),.modal 
 function showModalError(error){const container=$('.modal-body');if(!container)return;let node=$('#modal-request-error');if(!node){node=document.createElement('div');node.id='modal-request-error';node.className='error-text';node.setAttribute('role','alert');container.appendChild(node);}node.innerHTML=esc(error.message)+' <button class="link-btn" data-action="retry-operation">用原请求重试</button>';}
 function navButton(n){return '<button data-action="nav" data-page="'+n[0]+'" class="'+(state.page===n[0]?'active':'')+'">'+I(n[1])+'<span>'+n[2]+'</span>'+(n[0]==='orders'&&state.orders.length?'<span class="count">'+state.orders.length+'</span>':'')+'</button>';}
 function render(){
+ const authDraft=auth.captureForm();
  const keepQuantityFocus=state.quantityDraft!==null&&document.activeElement?.id==='quantity';
  cancelAnimationFrame(animation);
- const isMerchant=merchant.isRoute(),pageName=isMerchant?'商家工作台':state.page==='orders'?'我的订单':'开始创作';
- const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料</button></nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
- $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
- '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
+ const isMerchant=merchant.isRoute(),isAuth=auth.isRoute(),pageName=isAuth?'账号登录':isMerchant?'商家工作台':state.page==='orders'?'我的订单':'开始创作';
+ const customerNav='<nav class="header-nav" aria-label="个人导航"><button data-action="nav" data-page="home" class="'+(['home','create'].includes(state.page)?'active':'')+'">开始创作</button><button data-action="nav" data-page="orders" class="'+(state.page==='orders'?'active':'')+'">我的订单'+(state.orders.length?'<span class="nav-count">'+state.orders.length+'</span>':'')+'</button><button data-action="customer-profile" '+(state.connection==='loading'||!state.customerProfileLoaded||state.busy?'disabled':'')+'>账号资料</button>'+(auth.authenticated()?'<button data-auth-action="logout">退出</button>':'<a class="header-account-link" href="/login">登录</a>')+'</nav><a class="portal-switch" href="/merchant/login">商家登录 '+I('arrow')+'</a>';
+ $('#app').innerHTML='<header class="site-header"><div class="site-header-inner"><a href="/" class="brand"><img src="/icons.svg" alt=""/><span class="brand-name">共造</span><span class="brand-sub">'+(isMerchant?'商家工作台':'从想法，到实物')+'</span></a><div class="header-right">'+(isAuth?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':isMerchant?merchant.nav():customerNav)+'</div></div></header>'+
+ '<main id="main" class="main '+(isMerchant?'merchant-main':'customer-main')+'">'+(isAuth?auth.renderPage():isMerchant?merchant.renderContent():requestNotice()+renderPage())+'</main>'+
  '<footer class="site-footer"><span>共造 COFORGE</span><span>开发沙盒 · 不产生真实交易 <button class="text-link" data-action="payment-plan">支付与结算</button> · <button class="text-link" data-action="about">了解当前范围</button></span><button class="connection-status" data-action="reconnect"><i class="'+state.connection+'"></i>'+(state.connection==='online'?'已连接服务端':state.connection==='loading'?'正在连接':'连接已断开')+'</button></footer>';
- if(!isMerchant&&(state.page==='home'||state.page==='create'))setupViewer();
+ auth.restoreForm(authDraft);
+ if(!isMerchant&&!isAuth&&(state.page==='home'||state.page==='create'))setupViewer();
  if(state.busy)$$('#main button,#main input,#main select').forEach(el=>{el.disabled=true;});
  if(keepQuantityFocus&&!state.busy)$('#quantity')?.focus({preventScroll:true});
  document.title=pageName+' · 共造';
@@ -349,9 +352,10 @@ function catalogPage(){
 }
 function modal(title,body,footer='',wide=false){if(customerSaving)return;customerModal=null;focusBeforeModal=document.activeElement;$('#modal-root').innerHTML='<div class="modal-backdrop" data-dismiss="true"><section class="modal '+(wide?'wide':'')+'" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div class="modal-header"><h2 id="dialog-title">'+title+'</h2><button class="icon-btn" data-action="close" aria-label="关闭窗口">'+I('close')+'</button></div><div class="modal-body">'+body+'</div>'+(footer?'<div class="modal-footer">'+footer+'</div>':'')+'</section></div>';document.body.style.overflow='hidden';setTimeout(()=>$('.modal button,.modal input,.modal select,.modal textarea')?.focus(),0);}
 function closeModal(){if(customerSaving)return;customerModal=null;$('#modal-root').innerHTML='';document.body.style.overflow='';focusBeforeModal?.focus?.();}
-function paymentPlan(){
- const methods=[['微信支付 · 支付宝','面向适配地区，拟接入平台交易与分账产品。'],['Visa · Mastercard 等银行卡','通过支持平台业务的收单服务接入。'],['Apple Pay · Google Pay','按地区、设备与已开通的收单能力展示。'],['PayPal · 地区支付方式','仅在订单周期、商家地区及结算规则匹配时提供。']];
- const body='<p>确认报价后付款，确认收货后再申请向商家结算。</p><div class="hint">'+I('info')+'<span>当前为支付接入方案，以上通道尚未开通。本版本只模拟付款，不会收取真实款项。</span></div><div class="payment-method-plans">'+methods.map(([name,note])=>'<div><strong>'+name+'</strong><span>计划接入</span><p>'+note+'</p></div>').join('')+'</div><h3 class="payment-plan-heading">一笔订单的资金流程</h3><ol class="payment-plan-steps"><li><strong>确认报价并付款</strong><p>保存金额、币种与收货资料，以支付服务商确认的付款结果为准。</p></li><li><strong>制造、质检与配送</strong><p>订单款项按通道规则延迟结算，物流签收不会自动触发放款。</p></li><li><strong>客户确认收货</strong><p>核对订单无退款或争议，再申请分账、解冻或向商家转账。</p></li><li><strong>跟踪结算与到账</strong><p>分别显示结算处理结果与银行到账状态，不将已申请当作已到账。</p></li></ol><p class="inline-note">实际可用方式取决于平台与商家的国家/地区、币种和审核结果。通道存在持款期限；超出允许周期的订单将限制该通道，并在到期前处理延期、退款等异常。</p>';
+async function paymentPlan(){
+ try{await international.load();}catch(error){toast(error.message||'支付方案加载失败，请重试。');return;}
+ const savedCountry=state.customerProfile?.shippingAddress?.countryCode||'CN',market=international.marketFor(savedCountry);
+ const body='<p>确认报价后付款，确认收货后再申请向商家结算。</p><div class="hint">'+I('info')+'<span>当前为支付接入方案，尚未开通真实通道。演示操作不会收款。</span></div><label class="field-label" for="payment-market">查看国家 / 地区方案</label><select class="select payment-market-select" id="payment-market">'+international.options(market.countryCode)+'</select><div id="payment-market-preview">'+international.paymentHTML(market.countryCode)+'</div><h3 class="payment-plan-heading">一笔订单的资金流程</h3><ol class="payment-plan-steps"><li><strong>确认报价并付款</strong><p>保存金额、币种与收货资料，以支付服务商确认的付款结果为准。</p></li><li><strong>制造、质检与配送</strong><p>订单款项按通道规则延迟结算，物流签收不会自动触发放款。</p></li><li><strong>客户确认收货</strong><p>核对订单无退款或争议，再申请分账、解冻或向商家转账。</p></li><li><strong>跟踪结算与到账</strong><p>分别显示结算处理结果与银行到账状态，不将已申请当作已到账。</p></li></ol><p class="inline-note">实际可用方式取决于平台与商家的国家/地区、币种和审核结果。通道存在持款期限；超出允许周期的订单将限制该通道，并在到期前处理延期、退款等异常。</p>';
  modal('支付与结算',body,'<button class="btn primary" data-action="close">知道了</button>',true);
 }
 function quoteExpired(q){return !Number.isFinite(q.expiresAt)||Date.now()>=q.expiresAt;}
@@ -366,9 +370,13 @@ function quoteBatchDetails(q){
  const b=q.batch;if(!b)return '';
  return '<div class="quote-batch"><strong>批量制造估算</strong><div class="detail-row"><span>预计每板最多</span><strong>'+b.capacityPerPlate+' 件</strong></div><div class="detail-row"><span>本单预计板数</span><strong>'+b.plateCount+' 板 · '+q.qty+' 件</strong></div><p>以 '+b.plateSizeMm.join(' × ')+' mm 演示打印板及模型包围盒估算。未实际排版或切片，不代表已验证可打印；不跨客户拼单，也不等待凑满一板。</p></div>';
 }
+function quotePaymentSummary(q){
+ const payment=q.paymentContext;if(!payment)return '';
+ return '<div class="market-payment compact"><div class="market-payment-heading"><strong>'+esc(q.market?.name||'本单地区')+' · 支付方案</strong><span>尚未开通</span></div><p class="market-currency">当地参考币种 '+esc(payment.referenceCurrency||'待确认')+' · 当前演示金额以 CNY 记账，无汇率换算</p><div class="payment-method-chips">'+(payment.methods||[]).map(method=>'<span>'+esc(method.label)+' · 待开通</span>').join('')+'</div><p class="market-payment-note">'+(q.review?'本单为工程询价。价格、跨境运费、税费与交期确认后才可付款。':'当前只能模拟付款，不会收取真实款项。')+'</p></div>';
+}
 function qDetails(q){
- const intro=quoteValidity(q)+quoteEvidence(q);
- if(q.review)return intro+'<p>该文件、制造工艺或配送地区需要审核。提交后会创建一条演示询价记录，不会启动设备或产生扣款。</p><div class="detail-row"><span>收货地区</span><strong>'+destinations[q.destination]+'</strong></div>';
+ const intro=quoteValidity(q)+quoteEvidence(q)+quotePaymentSummary(q);
+ if(q.review)return intro+'<p>该文件、制造工艺或配送地区需要审核。提交后会创建一条演示询价记录，不会启动设备或产生扣款。</p><div class="detail-row"><span>收货地区</span><strong>'+esc(q.market?.name||destinations[q.destination])+'</strong></div>';
  const p=q.pricingSummary,rows=p?[['制造总价 · '+q.qty+' 件',p.manufacturingCents/100],['平均每件制造价约',p.averageUnitManufacturingCents/100],['平台服务费',p.platformFeeCents/100],['运费 · '+destinations[q.destination],p.shippingCents/100]]:[['制造总价 · '+q.qty+' 件',q.material+q.machine+q.finishing],['平台服务费',q.service],['运费 · '+destinations[q.destination],q.shipping]];
  return intro+'<p>按本单数量和预计板数测算。以下为客户支付价格，价格及交期均不是商家承诺。</p>'+quoteBatchDetails(q)+rows.map(([label,value])=>'<div class="detail-row"><span>'+label+'</span><strong>'+money(value)+'</strong></div>').join('')+'<div class="detail-row total"><span>演示总价 · '+q.qty+' 件</span><strong>'+money(q.total)+'</strong></div>'+(p?'<p class="inline-note">平均单件价经过四舍五入，支付以订单总价为准。</p>':'')+'<div class="detail-row"><span>本单估算机时</span><strong>'+q.productionHours.toFixed(1)+' 小时</strong></div><div class="detail-row"><span>前序任务估算机时</span><strong>'+q.queueHours.toFixed(1)+' 小时</strong></div><div class="detail-row"><span>区域运输估计</span><strong>'+q.transitDays[0]+'–'+q.transitDays[1]+' 天</strong></div><div class="detail-row"><span>预计收到 · 示例</span><strong>'+q.days[0]+'–'+q.days[1]+' 天</strong></div><p class="inline-note" style="font-size:10px;margin-top:15px">机时按材料用量、演示出料速度、层高及每板预热近似计算，按每日 8 小时产能排队；正在执行的任务保守计入完整机时，并加上备机、后处理和地区运输时间。未连接真实排产及物流，未扣除节假日，不能保证实际交期。</p>';
 }
@@ -479,7 +487,8 @@ document.addEventListener('change',e=>{
  if(e.target.id==='quantity')commitQuantity(e.target.value);
  if(e.target.id==='quote-sort'){state.sort=e.target.value;render();}
  if(e.target.id==='unit'){state.unit=e.target.value;configurationChanged();toast('已更新尺寸单位，服务端将重新计算报价');}
- if(e.target.id==='customer-country'){const country=e.target.value;$('#customer-other-country-field').hidden=country!=='OTHER';$('#customer-country-code').required=country==='OTHER';$('#customer-province-field').innerHTML=customerProvinceField(country==='CN'?'CN':country,'');$('#customer-district').required=country==='CN';$('#customer-district-label').textContent=country==='CN'?'区 / 县':'区 / 县（选填）';}
+ if(e.target.id==='customer-country')international.changeCountry(e.target.value);
+ if(e.target.id==='payment-market')$('#payment-market-preview').innerHTML=international.paymentHTML(e.target.value);
 });
 document.addEventListener('submit',e=>{if(e.target.id==='customer-profile-form'){e.preventDefault();saveCustomerProfile(false);}});
 document.addEventListener('input',e=>{if(e.target.id==='quantity'){editQuantity(e.target.value);return;}if(e.target.id==='network-search'){const pos=e.target.selectionStart;state.search=e.target.value;render();const input=$('#network-search');input.focus();input.setSelectionRange(pos,pos);}});
@@ -506,7 +515,9 @@ function drawViewer(){
  if(state.model.isSample){for(const x of [-22,22]){const v=project(rot([x,12,25.3]));ctx.beginPath();ctx.ellipse(v[0],v[1],4.3*sc,5*sc,0,0,Math.PI*2);ctx.fillStyle='#949494';ctx.fill();ctx.strokeStyle='#d4d4d4';ctx.lineWidth=1;ctx.stroke();}}
 }
 window.addEventListener('resize',()=>drawViewer());
-const merchant=createMerchantUI({icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
+const international=createInternationalUI({get,escape:esc});
+const auth=createAuthUI({render,resetWorkspace:()=>{clearQuotes();state.orders=[];state.devices=[];state.models=[];state.customerProfile=null;state.customerProfileLoaded=false;state.revision=0;state.session=null;retryOperation=null;closeModal();if(merchant){merchant.state.profile=null;merchant.state.devices=[];merchant.state.gateways=[];merchant.state.pricing=null;merchant.state.pricingDrafts={};}}});
+const merchant=createMerchantUI({auth,icon:I,escape:esc,render,modal,closeModal,toast,legacyOrders:farmPage,connection:()=>state.connection,reconnect:connectWorkspace,session:()=>state.session});
 if(!merchant.isRoute()&&location.hash==='#orders')state.page='orders';
 render();
 connectWorkspace();

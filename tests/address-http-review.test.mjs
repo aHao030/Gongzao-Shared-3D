@@ -84,7 +84,7 @@ test('address HTTP review: server derives region and rejects destination overrid
   const quotes = await h.quotes(user); assert.ok(quotes.every(q => q.destination === 'south'));
   const forged = await h.post(user, quotePath, { ...configuration, destination: 'east' });
   assert.equal(forged.status, 409); assert.equal(forged.data.error.code, 'DESTINATION_MISMATCH');
-  await h.save(user, fixture({ countryCode: 'JP', province: '東京都', city: '千代田区', district: '' }));
+  await h.save(user, fixture({ countryCode: 'JP', province: '東京都', city: '千代田区', district: '', postalCode: '100-0001' }));
   const foreignQuotes = await h.quotes(user);
   assert.ok(foreignQuotes.every(q => q.destination === 'other' && q.review && q.reviewReasons.includes('DESTINATION_REVIEW')));
   assert.ok(foreignQuotes.every(q => !('shippingAddress' in q)), 'quote terms contain no full address snapshot');

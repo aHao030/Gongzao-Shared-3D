@@ -1,4 +1,5 @@
 import { getCustomerProfile, saveCustomerProfile, requireShippingAddress } from './customer.mjs';
+import { ACCOUNTING_CURRENCY, quoteMarketContext } from './market.mjs';
 import { addQuoteEvidence } from './quote-evidence.mjs';
 import { PRICING_VERSION, getPricingProfile, savePricingProfile, estimateBatch, estimateBatchPrice, settlementBreakdown } from './pricing.mjs';
 import { CATALOG_VERSION, farms, materials, destinations, freshDevices, sampleModel } from './catalog.mjs';
@@ -93,7 +94,8 @@ async function makeQuotes(workspace, payload, now, idFactory) {
   for (const farm of farms) {
     const device = workspace.devices.find(d => d.farm === farm.id);
     const q = { quoteId: `Q-${idFactory()}`, version: CATALOG_VERSION, mode: 'DEMO_ONLY', farm: clone(farm), ...config, addressRevision, addressFingerprint, modelName: model.name, modelHash: model.sha256, modelVersion: model.version ?? 1, profileVersion: device.profileVersion, recipeVersion: device.recipeVersion, geometrySource: model.geometrySource ?? 'server-upload-parser', review: reviewReasons.length > 0, reviewReasons: [...reviewReasons], issuedAt: now, expiresAt: now + 900000, dimensions: geometry.dimensions, volume: geometry.volume };
-    if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [...farm.days], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
+    Object.assign(q, quoteMarketContext(address, q.review), { currency: ACCOUNTING_CURRENCY, priceStatus: q.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
+    if (q.review) Object.assign(q, { totalCents: 0, total: 0, days: [], weight: 0, hours: 0, productionHours: 0, queueHours: 0, transitDays: [], preparationDays: 0, materialCents: 0, machineCents: 0, finishingCents: 0, shippingCents: 0, serviceCents: 0, material: 0, machine: 0, finishing: 0, shipping: 0, service: 0 });
     else {
       const weight = geometry.volume * materials[config.material].density * (config.quality === 'fine' ? 1.1 : 1);
       const profile = getPricingProfile(workspace, farm.id);
@@ -166,6 +168,10 @@ async function createOrder(workspace, payload, now, idFactory) {
   const model = find(workspace.models, quote.modelId, 'MODEL_NOT_FOUND');
   check(model.sha256 === quote.modelHash && (model.version ?? 1) === quote.modelVersion, 'MODEL_CHANGED', '文件版本已变化，请重新报价');
   const order = { id: `DEMO-${idFactory()}`, created: stamp(now), createdAt: now, farm: quote.farm.id, modelId: model.id, modelName: model.name, modelHash: model.sha256, material: quote.materialKey, qty: quote.qty, quality: quote.quality, unit: quote.unit, destination: quote.destination, shippingAddress: clone(address), addressRevision, totalCents: quote.totalCents, total: quote.total, quoteId: quote.quoteId, quoteSnapshot: { ...clone(quote), estimatedWeight: quote.weight * quote.qty }, productionState: quote.review ? 'REVIEW_REQUIRED' : 'QUEUED', paymentState: quote.review ? 'UNPAID' : 'SIMULATED_FROZEN', logisticsState: 'NONE', acceptanceState: 'PENDING', settlementState: 'NOT_REQUESTED', disputeState: 'NONE', refundState: 'NONE', status: '', dispute: false, events: [] };
+  // Older valid v0.6 quotes lack a market snapshot; derive their context from
+  // the verified stored address, never from an order's client-supplied fields.
+  const marketContext = quote.market && quote.paymentContext ? { market: clone(quote.market), paymentContext: clone(quote.paymentContext) } : quoteMarketContext(address, quote.review);
+  Object.assign(order, marketContext, { currency: ACCOUNTING_CURRENCY, priceStatus: quote.review ? 'REVIEW_REQUIRED' : 'SANDBOX_ESTIMATE', payable: false });
   if (!quote.review) order.settlementBreakdown = { ...clone(quote.pricingSummary), source: 'V0_6_QUOTE' };
   quote.usedByOrderId = order.id;
   event(order, quote.review ? '已提交演示工程询价，尚未付款' : '已创建演示订单，模拟付款已冻结（未真实收款）', now);

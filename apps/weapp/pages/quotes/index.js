@@ -7,7 +7,7 @@ Page({
     const version = (this._requestVersion || 0) + 1; this._requestVersion = version;
     const spec = service.getSpec(); this.setData(Object.assign({ spec, quotes: [], saving: false, loading: true, error: '', addressRequired: false }, service.getModeInfo()));
     try { const quotes = await service.getQuotes(spec); if (version === this._requestVersion) this.setData({ quotes }); }
-    catch (error) { if (version === this._requestVersion) this.setData({ error: error.message, addressRequired: ['ADDRESS_REQUIRED', 'ADDRESS_CHANGED'].includes(error.code) }); }
+    catch (error) { if (version === this._requestVersion) this.setData({ error: error.message, addressRequired: ['ADDRESS_REQUIRED', 'ADDRESS_CHANGED', 'ADDRESS_INCOMPLETE'].includes(error.code) }); }
     finally { if (version === this._requestVersion) this.setData({ loading: false }); }
   },
   goProfile() { wx.navigateTo({ url: '/pages/profile/index' }); },
@@ -16,7 +16,7 @@ Page({
     if (this.data.saving) return;
     this.setData({ saving: true, error: '' });
     try { await service.createOrder(event.currentTarget.dataset.id); wx.switchTab({ url: '/pages/orders/index' }); }
-    catch (error) { this.setData({ error: error.message, addressRequired: ['ADDRESS_REQUIRED', 'ADDRESS_CHANGED'].includes(error.code) }); }
+    catch (error) { this.setData({ error: error.message, addressRequired: ['ADDRESS_REQUIRED', 'ADDRESS_CHANGED', 'ADDRESS_INCOMPLETE'].includes(error.code) }); }
     finally { this.setData({ saving: false }); }
   }
 });

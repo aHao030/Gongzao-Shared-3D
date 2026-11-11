@@ -1,4 +1,5 @@
 // Owner-scoped customer delivery details. No geocoding or external address service.
+import { ADDRESS_SCHEMA_VERSION, getMarket } from './market.mjs';
 class CustomerError extends Error {
   constructor(code, message, status = 400) { super(message); this.name = 'PlatformError'; this.code = code; this.status = status; }
 }
@@ -30,7 +31,11 @@ export function normalizeShippingAddress(value) {
   ensure(/^[A-Z]{2}$/.test(countryCode), 'INVALID_ADDRESS', '国家或地区代码需要两位字母');
   const phone = cleanText(value.phone, '联系电话', 40);
   ensure(/^[+\d ()-]+$/.test(phone) && phone.replace(/\D/g, '').length >= 5 && phone.replace(/\D/g, '').length <= 20 && !/\+/.test(phone.slice(1)), 'INVALID_ADDRESS', '请填写有效的联系电话');
-  let province = cleanText(value.province, '省州地区', 80);
+  const fields = getMarket(countryCode).address.fields;
+  const readField = (key, maximum = 80) => fields[key].visible
+    ? cleanText(value[key] ?? '', fields[key].label, maximum, fields[key].required)
+    : '';
+  let province = readField('province');
   if (countryCode === 'CN') {
     const match = provinceAliases.get(province);
     ensure(match, 'INVALID_ADDRESS', '请选择有效的中国大陆省区市');
@@ -38,10 +43,11 @@ export function normalizeShippingAddress(value) {
   }
   return {
     recipient: cleanText(value.recipient, '收件人', 80), phone, countryCode, province,
-    city: cleanText(value.city, '城市', 80),
-    district: cleanText(value.district ?? '', '区县', 80, countryCode === 'CN'),
-    addressLine: cleanText(value.addressLine, '详细地址', 240),
-    postalCode: cleanText(value.postalCode ?? '', '邮政编码', 20, false)
+    city: readField('city'), district: readField('district'),
+    addressLine: readField('addressLine', 240),
+    // Accept local postal conventions (spaces, hyphens, letters). Syntax alone
+    // cannot verify deliverability; do not impose one country's digit pattern.
+    postalCode: readField('postalCode', 20)
   };
 }
 
@@ -63,6 +69,7 @@ export function saveCustomerProfile(workspace, payload, now) {
   const changed = JSON.stringify(previous?.shippingAddress ?? null) !== JSON.stringify(shippingAddress);
   const profile = {
     displayName: payload.displayName.trim(), setupCompleted: payload.setupCompleted,
+    addressSchemaVersion: ADDRESS_SCHEMA_VERSION,
     shippingAddress, addressRevision: (previous?.addressRevision ?? 0) + (changed ? 1 : 0),
     destination: shippingAddress ? destinationForAddress(shippingAddress) : null,
     createdAt: previous?.createdAt ?? now, updatedAt: now
@@ -74,6 +81,14 @@ export function saveCustomerProfile(workspace, payload, now) {
 export function requireShippingAddress(workspace) {
   const profile = workspace.customerProfile;
   ensure(profile?.shippingAddress, 'ADDRESS_REQUIRED', '测算费用前，请先填写收货地址', 409);
-  const address = normalizeShippingAddress(profile.shippingAddress);
+  let address;
+  try { address = normalizeShippingAddress(profile.shippingAddress); }
+  catch (error) {
+    // v0.6 stored foreign addresses without mandatory local postal fields.
+    // Keep them readable and preserve orders; request an explicit correction
+    // before a new quote instead of turning legacy data into a server failure.
+    if (error?.code === 'INVALID_ADDRESS') throw new CustomerError('ADDRESS_INCOMPLETE', '收货地址需要完善，请按所在国家或地区补充地址资料后重新测算', 409);
+    throw error;
+  }
   return { address, addressRevision: profile.addressRevision, destination: destinationForAddress(address) };
 }

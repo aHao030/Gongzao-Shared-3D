@@ -1,4 +1,4 @@
-# 共造 v0.6 客户与履约沙盒 API（/api/v2）
+# 共造 v0.7 客户与履约沙盒 API（/api/v2）
 
 本文件描述 `services/platform` 当前实现；机器可读契约为 [openapi-v2.json](./openapi-v2.json)。旧 [API_CONTRACT.md](./API_CONTRACT.md) 描述独立的 v1 内存演示，不能用作当前网页的接口说明。
 
@@ -237,3 +237,18 @@ curl -b /tmp/coforge-cookie.txt -X POST http://127.0.0.1:3000/api/v2/quotes \
 ```
 
 从返回 `quotes` 中选择 `quoteId` 后调用 orders；从返回空间读取设备与订单实际 ID 再调用 actions。不得把这些示例请求连接到真实付款或设备启动流程。
+
+
+## v0.7 国家配置与账号认证
+
+- `GET /api/v2/markets` 返回 `{schemaVersion:1, accountingCurrency:"CNY", markets:[...]}`；`?country=US` 返回 `{schemaVersion,accountingCurrency,market,countries}`。地址字段有 label/placeholder/required/visible 和 fieldOrder；支付规划始终未开通。
+- 新地址按国家 schema 校验；旧海外地址仍可读，缺少新必填项的测算返回 409 `ADDRESS_INCOMPLETE`。审核订单保留 UNPAID。报价/订单携带 market 与 paymentContext，客户端不能通过 currency/provider 覆盖。
+- 报价及订单的 `currency`、市场快照的 `accountingCurrency` 固定为 `CNY`；`referenceCurrency` 仅为所在地区的参考币种，其他地区可为 `null`。`exchangeRate` 为 `null`，不提供兑换金额。所有 `paymentContext.methods` 均为 `NOT_CONFIGURED` / `enabled:false`，`livePaymentsEnabled` 与 `payable` 均为 `false`。
+- 工程询价使用 `priceStatus: REVIEW_REQUIRED`、`days: []`、`transitDays: []`、`estimation.estimatedArrival: null`，需要审核后确认价格、国际运费和交期。`total/totalCents/shippingCents` 的 `0` 仅保留旧接口占位，客户端必须按 `review` 或 `priceStatus` 显示“待询价”，不得展示为免费报价。普通演示测算使用 `SANDBOX_ESTIMATE`，也不构成真实报价或收款入口。
+- `GET /api/auth/config`、`GET /api/auth/session` 不使用 /api/v2 前缀。前者决定环境与登录方式，后者决定账号是否认证。旧 v2/session 的 authenticated 是工作空间会话状态，不能用于判断商家已认证。
+- 本机 `POST /api/auth/register` body `{email,password,displayName?,adoptLegacyWorkspace?}`；`POST /api/auth/login` body `{email,password}`；`POST /api/auth/logout` body `{}`。使用同源 JSON；认证端点不要求 v2 幂等键。密码 12–128 字符，邮箱未验证。
+- 本机 `/api/v2/merchant/*` 要求账号 Cookie。旧匿名客户 Cookie 不授予商家权限。网关仍使用自己的配对授权。
+- 配置 OIDC 后由 `/api/auth/oidc/start?provider=...` 启动，回调 `/api/auth/oidc/callback`；服务端管理 flow Cookie/state/nonce/PKCE。入口仅允许配置中的六种 provider id。
+- 托管部署只提供已有平台身份，邮箱注册/登录和外部 OIDC 入口关闭；内置 `/signin-with-chatgpt`、`/signout-with-chatgpt` 由平台负责。
+
+这些本机认证能力不是邮箱所有权验证、企业认证、完整商业多租户权限或原生端登录的完成声明。

@@ -30,8 +30,11 @@ async function setup(t) {
     return { status: response.status, headers: response.headers, text, data: response.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : null };
   }
   async function session() {
-    const result = await request('/api/v2/session'); assert.equal(result.status, 200);
-    return { cookie: result.headers.get('set-cookie').split(';')[0], owner: result.data.user.id };
+    const result = await request('/api/auth/register', { body: { email: `merchant-${randomUUID()}@example.invalid`, password: 'Fixture-merchant-password-v7', displayName: 'Fixture merchant' } });
+    assert.equal(result.status, 201, JSON.stringify(result.data));
+    const cookie = result.headers.getSetCookie().find(value => !value.includes('Max-Age=0')).split(';')[0];
+    const session = await request('/api/v2/session', { cookie }); assert.equal(session.status, 200);
+    return { cookie, owner: session.data.user.id };
   }
   const post = (user, route, body, key) => request(endpoint + route, { cookie: user.cookie, body, key });
   const get = (user, route) => request(endpoint + route, { cookie: user.cookie });

@@ -43,6 +43,7 @@ test('manual engineering quotes promise no arrival dates or production estimate'
   assert.equal(q.estimation.method, 'MANUAL_REVIEW');
   assert.equal(q.estimation.estimatedArrival, null);
   assert.equal(q.estimation.stages, null);
+  assert.deepEqual(q.days, []);
   assert.equal(q.totalCents, 0);
 });
 

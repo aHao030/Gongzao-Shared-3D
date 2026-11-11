@@ -1,6 +1,6 @@
-const CACHE = 'gongzao-platform-v6';
-const ASSETS = ['/index.html', '/styles.css', '/app.js', '/api-client.js', '/merchant-ui.js', '/icons.svg', '/app-icon.svg', '/manifest.webmanifest'];
-const ENTRIES = new Set(['/', '/index.html', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/']);
+const CACHE = 'gongzao-platform-v7';
+const ASSETS = ['/index.html', '/styles.css', '/app.js', '/api-client.js', '/merchant-ui.js', '/auth-ui.js', '/international-ui.js', '/icons.svg', '/app-icon.svg', '/manifest.webmanifest'];
+const ENTRIES = new Set(['/', '/index.html', '/merchant', '/merchant/', '/merchant/login', '/merchant/login/', '/login', '/login/', '/account/login', '/account/login/']);
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => /^(gongzao-demo-|gongzao-platform-)/.test(key) && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', event => {

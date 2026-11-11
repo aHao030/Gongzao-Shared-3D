@@ -59,7 +59,7 @@ test('customer: routing uses recognized province groups and sends unsupported de
       assert.equal(destinationForAddress(address), destination, province);
     }
   }
-  const international = normalizeShippingAddress(customerProfileFixture({ shippingAddress: { countryCode: 'JP', province: '東京都', city: '新宿区', district: '', phone: '+81 (3) 1234-5678' } }).shippingAddress);
+  const international = normalizeShippingAddress(customerProfileFixture({ shippingAddress: { countryCode: 'JP', province: '東京都', city: '新宿区', district: '', phone: '+81 (3) 1234-5678', postalCode: '160-0022' } }).shippingAddress);
   assert.equal(destinationForAddress(international), 'other');
 });
 
@@ -82,7 +82,7 @@ test('customer: client cannot choose a cheaper region and external addresses get
   await assert.rejects(h.run('quote', { destination: 'east' }), { code: 'DESTINATION_MISMATCH' });
   const [north] = (await h.run('quote')).result.quotes;
   assert.equal(north.destination, 'north');
-  await h.run('customer-profile', customerProfileFixture({ shippingAddress: { countryCode: 'US', province: 'California', city: 'San Francisco', district: '' } }));
+  await h.run('customer-profile', customerProfileFixture({ shippingAddress: { countryCode: 'US', province: 'California', city: 'San Francisco', district: '', postalCode: '94105' } }));
   const [other] = (await h.run('quote')).result.quotes;
   assert.equal(other.review, true);
   assert.equal(other.destination, 'other');

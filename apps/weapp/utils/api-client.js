@@ -19,6 +19,22 @@
       throw fail('IDEMPOTENCY_KEY_REQUIRED', '写操作需要 8–128 位幂等键；重试时复用同一键。');
     return value;
   }
+  const addressKeys = ['recipient', 'phone', 'countryCode', 'province', 'city', 'district', 'addressLine', 'postalCode'];
+  function validMarket(market) {
+    const isText = value => typeof value === 'string' && value.length <= 1500;
+    if (!market || typeof market !== 'object' || !/^(?:[A-Z]{2}|OTHER)$/.test(market.countryCode) || !isText(market.name) || !isText(market.phonePrefix)) return false;
+    if (market.referenceCurrency !== null && !/^[A-Z]{3}$/.test(market.referenceCurrency)) return false;
+    const address = market.address, payment = market.payment;
+    if (!address || !address.fields || !Array.isArray(address.fieldOrder) || !isText(address.note) || new Set(address.fieldOrder).size !== address.fieldOrder.length) return false;
+    if (!addressKeys.every(key => {
+      const field = address.fields[key];
+      return field && isText(field.label) && isText(field.placeholder) && typeof field.required === 'boolean' && typeof field.visible === 'boolean' && (!field.required || field.visible)
+        && (field.visible === address.fieldOrder.includes(key));
+    }) || address.fieldOrder.some(key => !addressKeys.includes(key))) return false;
+    return !!payment && payment.countryCode === market.countryCode && payment.accountingCurrency === 'CNY' && payment.referenceCurrency === market.referenceCurrency
+      && payment.exchangeRate === null && payment.livePaymentsEnabled === false && isText(payment.note) && Array.isArray(payment.methods)
+      && payment.methods.every(method => method && isText(method.id) && isText(method.label) && method.status === 'NOT_CONFIGURED' && method.enabled === false);
+  }
   function createApiClient(options) {
     const settings = options || {};
     const apiBase = normalizeApiBase(settings.apiBase);
@@ -68,6 +84,17 @@
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('PROFILE_REQUIRED', '请提供账号资料和收货地址。');
         const result = await request('POST', '/customer/profile', input, { 'Idempotency-Key': keyHeader(idempotencyKey) });
         if (!result.profile || typeof result.profile !== 'object' || Array.isArray(result.profile)) throw fail('INVALID_RESPONSE', '账号资料保存响应缺少 profile。');
+        return result;
+      },
+      async getMarkets(countryCode) {
+        if (countryCode !== undefined && (typeof countryCode !== 'string' || !/^(?:[A-Z]{2}|OTHER)$/.test(countryCode)))
+          throw fail('INVALID_COUNTRY', '请选择国家或地区，或填写两位国家或地区代码。');
+        const result = await request('GET', '/markets' + (countryCode === undefined ? '' : '?country=' + encodeURIComponent(countryCode)));
+        if (result.schemaVersion !== 1 || result.accountingCurrency !== 'CNY') throw fail('INVALID_RESPONSE', '国家与地址配置版本不受支持。');
+        const markets = countryCode === undefined ? result.markets : [result.market];
+        if (!Array.isArray(markets) || !markets.length || !markets.every(validMarket) || new Set(markets.map(market => market.countryCode)).size !== markets.length)
+          throw fail('INVALID_RESPONSE', '国家与地址配置不完整；请稍后重试。');
+        if (countryCode !== undefined && result.market.countryCode !== countryCode) throw fail('INVALID_RESPONSE', '服务端返回的国家配置与请求不一致。');
         return result;
       },
       async getQuotes(input, idempotencyKey) {

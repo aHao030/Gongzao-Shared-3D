@@ -1,6 +1,6 @@
 import { get, prepareMutation } from './api-client.js';
 
-export function createMerchantUI({ icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session }) {
+export function createMerchantUI({ icon, escape, render, modal, closeModal, toast, legacyOrders, connection, reconnect, session, auth }) {
   const state = { profile:null, loaded:false, loading:false, busy:false, error:null, view:'overview', devices:[], gateways:[], counts:{total:0,real:0,online:0,offline:0,demo:0}, scan:null, selected:new Set(), lastRefreshed:null, pollTimer:null, freshnessTimer:null, clockOffset:0, retry:null, pricing:null, pricingLoading:false, pricingFarm:'f1', pricingDrafts:{}, pricingDraftRevisions:{} };
   let pairing = null;
   const esc=escape, I=icon;
@@ -29,6 +29,8 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
   async function load(show=true){
     if(state.loading)return;state.loading=true;if(show)render();
     try{
+      if(auth&&!auth.state.loaded)await auth.load();
+      if(auth&&!auth.authenticated()){state.profile=null;state.loaded=true;state.error=null;return;}
       const session=await get('/merchant/session');state.profile=session.profile;state.error=null;
       if(state.profile){
         const [devices,gateways,scan]=await Promise.all([get('/merchant/devices'),get('/merchant/gateways'),get('/merchant/scan-result')]);
@@ -55,12 +57,12 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     return '<div class="summary-grid merchant-summary">'+[['已添加设备',counts.real,'真实登记'],['最近已识别',counts.online,'协议可读，不代表可开打'],['待检查设备',counts.offline,'离线、过期或待授权'],['待添加设备',pending,'最近一次真实检测']].map(([label,count,note])=>'<div class="summary-card"><span>'+label+'</span><strong>'+Number(count||0)+'</strong><p>'+note+'</p></div>').join('')+'</div>';
   }
   function loginPage(){
-    return '<div class="merchant-login"><div class="login-story"><div class="eyebrow">COFORGE FOR BUSINESS</div><h1>制造的每一步，<br/>井然有序。</h1><p>管理你的设备。接收新的订单。<br/>让工作台回归简单。</p><div class="login-benefits"><span>'+I('devices')+'设备一目了然</span><span>'+I('search')+'发现并批量添加</span><span>'+I('orders')+'跟进生产与交付</span></div></div><section class="login-card"><div class="login-symbol">'+I('factory')+'</div><h2>商家登录</h2><p class="login-description">使用当前平台账号，进入独立的商家工作台。</p>'+notice()+
-    (connection()==='offline'?'<p>请先恢复平台登录连接。</p><a class="btn primary full" href="/signin-with-chatgpt?return_to=%2Fmerchant">通过 ChatGPT 登录</a>'+button('reconnect','重新检查连接',false,'style="width:100%;margin-top:12px"'):
-      !state.loaded||state.loading?'<div class="login-loading" role="status">'+I('clock')+'正在检查商家身份…</div>':
-      state.profile?'<div class="merchant-profile-ready">'+I('check')+'<div><strong>'+esc(state.profile.name)+'</strong><span>商家空间已创建</span></div></div>'+button('enter','进入商家工作台 '+I('arrow'),true,'style="width:100%"'):
-      '<label class="field-label" for="merchant-name">店铺或工作室名称</label><input id="merchant-name" class="input" maxlength="60" placeholder="例如：我的制造工作室" autocomplete="organization"/><div id="merchant-name-error" class="error-text" role="alert"></div>'+button('enroll','使用当前账号开通 '+I('arrow'),true,'style="width:100%;margin-top:20px"'))+
-    '<p class="login-footnote">当前为商家功能沙盒。开通将保存商家资料，不代表完成商家资质认证。</p><a class="text-link" href="/">返回个人创作空间 '+I('arrow')+'</a></section></div>';
+    const account=auth?.renderPanel({merchant:true})||'<p>正在连接账号服务…</p>';
+    const enrollment=auth?.authenticated()?'<div class="merchant-enrollment">'+notice()+
+      (connection()==='offline'?'<p class="auth-help">店铺资料暂时无法加载，请检查连接后重试。</p>'+button('reconnect','重新连接',true):!state.loaded||state.loading?'<div class="login-loading" role="status">'+I('clock')+'正在检查店铺资料…</div>':
+      state.profile?'<h3>你的制造空间</h3><div class="merchant-profile-ready">'+I('check')+'<div><strong>'+esc(state.profile.name)+'</strong><span>店铺资料已创建</span></div></div>'+button('enter','进入商家工作台 '+I('arrow'),true,'style="width:100%"'):
+      '<h3>开通店铺资料</h3><p class="auth-help">登录完成后，为你的制造空间起一个名字。</p><label class="field-label" for="merchant-name">店铺或工作室名称</label><input id="merchant-name" class="input" maxlength="60" placeholder="例如：我的制造工作室" autocomplete="organization"/><div id="merchant-name-error" class="error-text" role="alert"></div>'+button('enroll','创建店铺资料 '+I('arrow'),true,'style="width:100%;margin-top:20px"'))+'<p class="login-footnote">当前为商家功能沙盒。创建店铺资料不代表完成商家资质认证。</p></div>':'';
+    return '<div class="merchant-login"><div class="login-story"><div class="eyebrow">COFORGE FOR BUSINESS</div><h1>制造的每一步，<br/>井然有序。</h1><p>管理你的设备。接收新的订单。<br/>让工作台回归简单。</p><div class="login-benefits"><span>'+I('devices')+'设备一目了然</span><span>'+I('search')+'发现并批量添加</span><span>'+I('orders')+'跟进生产与交付</span></div></div><section class="login-card">'+account+enrollment+'<a class="text-link auth-return" href="/">返回个人创作空间 '+I('arrow')+'</a></section></div>';
   }
   function overview(){
     const connected=onlineGateways();
@@ -164,10 +166,10 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     return content;
   }
   function renderContent(){
-    if(!state.profile||location.pathname.replace(/\/$/,'')==='/merchant/login')return loginPage();
+    if((auth&&!auth.authenticated())||!state.profile||location.pathname.replace(/\/$/,'')==='/merchant/login')return loginPage();
     return notice()+(state.view==='devices'?registry():state.view==='pricing'?pricingPage():state.view==='orders'?'<div class="merchant-legacy-label">订单履约沙盒 · 以下生产、物流与结算为模拟操作，与真实设备清单分开。</div>'+legacyOrders():overview());
   }
-  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['pricing','计价'],['orders','订单']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'</nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
+  function nav(){return !state.profile?'<a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>':'<nav class="header-nav" aria-label="商家导航">'+[['overview','概览'],['devices','设备'],['pricing','计价'],['orders','订单']].map(([id,label])=>'<button class="'+(state.view===id?'active':'')+'" data-merchant-action="view" data-view="'+id+'">'+label+'</button>').join('')+'<button data-auth-action="logout">退出</button></nav><a href="/" class="portal-switch">个人创作 '+I('arrow')+'</a>';}
   function discover(){
     const gateways=onlineGateways();
     if(!gateways.length){modal('连接后，一键发现','<div class="connect-explainer">'+I('network')+'<h3>需要一个在线的本地网关</h3><p>网页无法直接查找你局域网里的打印机。<br/>在连接设备的电脑上运行共造网关，即可完成检测。</p></div><div class="setup-steps"><div><b>1</b><span>创建并下载网关配置</span></div><div><b>2</b><span>在商家电脑上运行网关</span></div><div><b>3</b><span>回到这里检测并添加设备</span></div></div>','<button class="btn" data-action="close">稍后</button>'+button('pair','连接本地网关',true));return;}
@@ -200,7 +202,7 @@ export function createMerchantUI({ icon, escape, render, modal, closeModal, toas
     if(action==='save-pricing')return savePricing();
     if(action==='device-details')return deviceDetails(target.dataset.deviceId);
     if(action==='enter'){history.replaceState(null,'','/merchant');return go('overview');}
-    if(action==='enroll'){const name=$('#merchant-name')?.value.trim();if(!name){$('#merchant-name-error').textContent='请填写店铺或工作室名称。';return;}return mutation('enroll',{name},async result=>{state.profile=result.profile;history.replaceState(null,'','/merchant');await load(false);toast('商家空间已创建');});}
+    if(action==='enroll'){if(auth&&!auth.authenticated()){toast('请先登录共造账号。');return;}const name=$('#merchant-name')?.value.trim();if(!name){$('#merchant-name-error').textContent='请填写店铺或工作室名称。';return;}return mutation('enroll',{name},async result=>{state.profile=result.profile;history.replaceState(null,'','/merchant');await load(false);toast('商家空间已创建');});}
     if(action==='retry'){if(state.retry)return execute(state.retry.task,state.retry.success);return state.view==='pricing'?loadPricing():load();}
     if(action==='reconnect')return reconnect();
     if(action==='refresh'){closeModal();await load();toast(state.error?'查询未完成，请重试':'已查询最新设备状态');return;}

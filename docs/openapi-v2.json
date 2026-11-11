@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "info": {
-    "title": "共造 v0.6 批量计价与履约沙盒 API（/api/v2）",
-    "version": "0.6.0",
-    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md."
+    "title": "共造 v0.7 国际地址、认证与履约沙盒 API",
+    "version": "0.7.0",
+    "description": "Implementation contract for services/platform, not a production integration promise. No real payment, printer, slicer, courier, or WeChat authentication. Local authentication uses the documented cookie; hosted requests instead require the managed authentication gate to inject a trusted owner identity. The cookie security scheme models local use only. One owner can act as both customer and farm within their isolated sandbox. Every POST needs an 8–128 character Idempotency-Key. Customer delivery profiles are owner-scoped. New quotes require a saved address and use its server-derived destination; a changed address invalidates unused quotes. Merchant/gateway routes are described separately in MERCHANT_GUIDE.md. v0.7: Local merchant APIs require a registered account cookie, while customer anonymous sandbox sessions remain available. Separate /api/auth routes do not require Idempotency-Key. Address required fields are country-dependent via /api/v2/markets. All payments stay disabled."
   },
   "servers": [
     {
@@ -445,6 +445,246 @@
           }
         }
       }
+    },
+    "/api/v2/markets": {
+      "get": {
+        "operationId": "getMarketConfiguration",
+        "summary": "Country address schema and unconfigured payment plan",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "country",
+            "schema": {
+              "type": "string",
+              "pattern": "^([A-Za-z]{2}|OTHER)$"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "operationId": "getAuthConfig",
+        "security": [],
+        "summary": "Read authentication config without exposing secrets",
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "getAuthSession",
+        "security": [],
+        "summary": "Read authentication session without exposing secrets",
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "operationId": "registerAccount",
+        "security": [],
+        "summary": "Local account register; hosted auth is platform managed",
+        "description": "Same-origin JSON, no Idempotency-Key. Email ownership unverified. Generic login errors and bounded/rate-limited requests.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 128
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "adoptLegacyWorkspace": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication failed"
+          },
+          "403": {
+            "description": "Origin rejected or hosted mode unsupported"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "loginAccount",
+        "security": [],
+        "summary": "Local account login; hosted auth is platform managed",
+        "description": "Same-origin JSON, no Idempotency-Key. Email ownership unverified. Generic login errors and bounded/rate-limited requests.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication failed"
+          },
+          "403": {
+            "description": "Origin rejected or hosted mode unsupported"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logoutAccount",
+        "security": [],
+        "summary": "Local account logout; hosted auth is platform managed",
+        "description": "Same-origin JSON, no Idempotency-Key. Email ownership unverified. Generic login errors and bounded/rate-limited requests.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success; JSON body reflects server-side configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication failed"
+          },
+          "403": {
+            "description": "Origin rejected or hosted mode unsupported"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -454,6 +694,12 @@
         "in": "cookie",
         "name": "coforge_sandbox",
         "description": "Local sandbox only. Established by GET /api/v2/session. Hosted mode uses the managed authentication gate; clients must not self-assert the internal identity header."
+      },
+      "AccountCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "coforge_account",
+        "description": "Local email/password or configured OIDC account session. Required for merchant routes; hosted deployment uses managed identity instead."
       }
     },
     "parameters": {
@@ -1115,8 +1361,17 @@
               "type": "integer",
               "minimum": 0
             },
-            "minItems": 2,
-            "maxItems": 2
+            "maxItems": 2,
+            "oneOf": [
+              {
+                "maxItems": 0
+              },
+              {
+                "minItems": 2,
+                "maxItems": 2
+              }
+            ],
+            "description": "Empty for manual-review inquiries; otherwise a two-value sandbox delivery estimate. Not a delivery commitment."
           },
           "fingerprint": {
             "type": "string",
@@ -2322,19 +2577,17 @@
           },
           "province": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 80,
             "description": "CN requires one of 31 mainland provinces/regions/municipalities. Accepted short names are normalized to official full names."
           },
           "city": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 80
           },
           "district": {
             "type": "string",
             "maxLength": 80,
-            "description": "CN requires non-empty district; elsewhere omitted becomes empty."
+            "description": "Country-specific; CN and NZ require this field. Non-applicable hidden fields are normalized empty."
           },
           "addressLine": {
             "type": "string",
@@ -2344,18 +2597,17 @@
           "postalCode": {
             "type": "string",
             "maxLength": 20,
-            "default": ""
+            "default": "",
+            "description": "Required according to market. String preserves letters, spaces, hyphens and leading zeroes; CN optional for backward compatibility."
           }
         },
         "required": [
           "recipient",
           "phone",
           "countryCode",
-          "province",
-          "city",
           "addressLine"
         ],
-        "description": "Trimmed delivery details; control characters rejected. This is format validation, not postal deliverability certification. CN requires a non-empty district. Other country codes route to manual quotation."
+        "description": "Country-specific required/visible fields come from /api/v2/markets. CN requires province, city and district; SG requires postalCode without province/city; HK/MO have no postalCode. Unknown two-letter countries use generic manual-review template. Format validation only."
       },
       "CustomerProfileRequest": {
         "type": "object",

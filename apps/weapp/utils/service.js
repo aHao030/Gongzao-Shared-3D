@@ -66,6 +66,10 @@ async function getCustomerProfile() {
   if (mode !== 'server') return { profile: null, localOnly: true };
   return remoteClient().getCustomerProfile();
 }
+async function getMarkets() {
+  if (mode !== 'server') return { markets: [], localOnly: true };
+  return remoteClient().getMarkets();
+}
 async function saveCustomerProfile(input) {
   if (mode !== 'server') { const error = new Error('本机演示不采集或保存真实收货地址，请先接通服务端模式。'); error.code = 'SERVER_MODE_REQUIRED'; throw error; }
   // Address bodies stay in memory. Never put personal details in a persistent retry-key scope.
@@ -99,4 +103,4 @@ async function listOrders() {
 }
 function advanceOrder(id) { if (mode !== 'local') throw new Error('服务端订单不能在本机推进。'); demo.advanceOrder(id); }
 function clearOrders() { if (mode !== 'local') throw new Error('服务端订单不能在本机清空。'); demo.clearOrders(); }
-module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getQuotes, createOrder, getCustomerProfile, saveCustomerProfile, listOrders, advanceOrder, clearOrders };
+module.exports = { materials: demo.materials, getMode, getModeInfo, selectMode, getSpec, saveSpec, getQuotes, createOrder, getCustomerProfile, getMarkets, saveCustomerProfile, listOrders, advanceOrder, clearOrders };

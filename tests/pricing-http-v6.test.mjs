@@ -29,8 +29,10 @@ async function harness(t) {
     return { status: response.status, headers: response.headers, data: await response.json() };
   }
   async function session(merchant = false) {
-    const response = await request(null, '/api/v2/session');
-    const cookie = response.headers.get('set-cookie').split(';')[0];
+    const registered = await request(null, '/api/auth/register', { email: `pricing-${randomUUID()}@example.invalid`, password: 'Fixture-pricing-password-v7', displayName: 'Fixture pricing merchant' });
+    ok(registered);
+    const cookie = registered.headers.getSetCookie().find(value => !value.includes('Max-Age=0')).split(';')[0];
+    const response = await request(cookie, '/api/v2/session');
     owners.set(cookie, ok(response).user.id);
     ok(await request(cookie, '/api/v2/customer/profile', customerProfileFixture()));
     if (merchant) ok(await request(cookie, '/api/v2/merchant/enroll', { name: '测试沙盒工坊' }));
@@ -78,7 +80,7 @@ async function accepted(h, cookie, order) {
 
 test('HTTP v0.6: pricing requires enrollment and each owner has isolated profiles and evidence', async t => {
   const h = await harness(t);
-  denied(await h.request(null, '/api/v2/merchant/pricing'), 401, 'AUTH_REQUIRED');
+  denied(await h.request(null, '/api/v2/merchant/pricing'), 401, 'ACCOUNT_LOGIN_REQUIRED');
   const a = await h.session(), b = await h.session(true);
   denied(await h.request(a, '/api/v2/merchant/pricing'), 403, 'MERCHANT_REQUIRED');
   const baseline = await h.pricing(b), profile = baseline.profiles[0];

@@ -24,3 +24,7 @@ gateway-config*.json
 *.gateway.local.json
 
 *.private.json
+
+# Server-only authentication configuration
+auth.config.json
+auth.config.local.json

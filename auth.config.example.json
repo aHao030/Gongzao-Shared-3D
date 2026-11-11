@@ -1,0 +1,20 @@
+{
+  "publicOrigin": "http://127.0.0.1:3000",
+  "oidc": {
+    "enabled": false,
+    "issuer": "https://identity.example.com",
+    "publicOrigin": "http://127.0.0.1:3000",
+    "adapter": "casdoor",
+    "clientId": "REPLACE_WITH_REGISTERED_CLIENT_ID",
+    "clientSecret": "REPLACE_WITH_SERVER_ONLY_CLIENT_SECRET",
+    "tokenEndpointAuthMethod": "client_secret_post",
+    "providers": {
+      "wechat": "REPLACE_WITH_CASDOOR_WECHAT_PROVIDER_NAME",
+      "alipay": "REPLACE_WITH_CASDOOR_ALIPAY_PROVIDER_NAME",
+      "x": "REPLACE_WITH_CASDOOR_X_PROVIDER_NAME",
+      "apple": "REPLACE_WITH_CASDOOR_APPLE_PROVIDER_NAME",
+      "qq": "REPLACE_WITH_CASDOOR_QQ_PROVIDER_NAME",
+      "google": "REPLACE_WITH_CASDOOR_GOOGLE_PROVIDER_NAME"
+    }
+  }
+}

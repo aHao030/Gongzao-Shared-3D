@@ -1,5 +1,6 @@
 import { getMerchantPricing } from './pricing.mjs';
 import { getCustomerProfile } from './customer.mjs';
+import { getMarketCatalog } from './market.mjs';
 import { handleMerchantApi } from './merchant-http.mjs';
 import { applyCommand, getPublicWorkspace } from './core.mjs';
 import { ApiError, ensure, analyzeModel } from './geometry.mjs';
@@ -20,11 +21,16 @@ export async function handleApi(request,{store,ownerId,userLabel='创作者',clo
   try {
     ensure(path.startsWith('/api/v2/')||path==='/health',404,'NOT_FOUND','接口不存在');
     if((path.startsWith('/api/v2/merchant/')&&path!=='/api/v2/merchant/pricing')||path.startsWith('/api/v2/gateway/'))return handleMerchantApi(request,{store,ownerId,clock});
-    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.6.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
+    if(path==='/health'&&request.method==='GET')return jsonResponse({ok:true,version:'0.7.0',mode:'SERVER_SANDBOX',persistence:store.kind,realPayments:false,realDevices:false});
     ensure(ownerId,401,'AUTH_REQUIRED','请先登录或建立本地沙盒会话');
     if(request.headers.get('sec-fetch-site')==='cross-site')throw new ApiError(403,'CROSS_ORIGIN_DENIED','不接受跨站调用');
     const origin=request.headers.get('origin');
     ensure(!origin||origin===url.origin,403,'CROSS_ORIGIN_DENIED','不接受其他网站的请求');
+    if(request.method==='GET'&&path==='/api/v2/markets') {
+      const country = url.searchParams.get('country');
+      ensure(country === null || /^(?:[A-Za-z]{2}|OTHER)$/.test(country),400,'INVALID_COUNTRY','请选择国家或地区，或填写两位国家或地区代码');
+      return jsonResponse(getMarketCatalog(country ?? undefined));
+    }
     if(request.method==='GET'&&path==='/api/v2/merchant/pricing')return jsonResponse(getMerchantPricing(await store.load(ownerId)));
     if(request.method==='GET'&&path==='/api/v2/session')return jsonResponse({mode:'SERVER_SANDBOX',authenticated:true,user:{id:ownerId,label:userLabel},persistence:store.kind,capabilities:{uploads:true,maxUploadBytes:20*1024*1024,maxStlTriangles:50000,realPayments:false,realDevices:false,wechatAuthentication:false}});
     if(request.method==='GET'&&path==='/api/v2/customer/profile')return jsonResponse({profile:getCustomerProfile(await store.load(ownerId))});
